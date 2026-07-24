@@ -61,6 +61,15 @@ step "Generation des fichiers"
 python3 bin/render.py
 c_ok "Caddyfile, manifeste web et commandes serve generes"
 
+# Les en-tetes d'encadrement changent d'une version d'application a l'autre :
+# on mesure plutot que de faire confiance a la declaration. Non bloquant.
+if ! python3 bin/check-embed.py >/tmp/sampana-embed.$$ 2>&1; then
+    c_warn "Des declarations \`embed\` ne correspondent plus a la realite :"
+    grep -E 'A CORRIGER|"embed"' /tmp/sampana-embed.$$ | sed 's/^/       /'
+    c_warn "Un service encadre a tort affiche un cadre vide dans le dashboard."
+fi
+rm -f /tmp/sampana-embed.$$
+
 # ── 4. Fichiers web ─────────────────────────────────────────────────────
 step "Publication du dashboard"
 

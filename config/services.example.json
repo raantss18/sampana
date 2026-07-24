@@ -38,9 +38,10 @@
           "route": "port",
           "port": 10443,
           "upstream": "127.0.0.1:80",
-          "embed": true,
+          "embed": false,
           "probe": "/login",
-          "open_path": "/project"
+          "open_path": "/project",
+          "embed_reason": "Overleaf renvoie X-Frame-Options: SAMEORIGIN et frame-ancestors 'none'"
         },
         {
           "id": "lean4web",

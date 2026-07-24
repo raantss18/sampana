@@ -93,12 +93,17 @@ masqué du dashboard), `open_path`
 (ex. `/docs`), `upstream_scheme` (`https+insecure` si le backend est en TLS
 auto-signé, comme Syncthing).
 
-**Vérifier si un service accepte l'iframe :**
+**Ne devinez pas `embed`, mesurez-le :**
 ```bash
-curl -sD - -o /dev/null http://127.0.0.1:PORT/ | grep -iE 'x-frame-options|frame-ancestors'
+bin/check-embed.py
 ```
-Une réponse vide = encadrable. `SAMEORIGIN` ou `frame-ancestors 'self'` avec un
-port différent = `"embed": false`.
+Le script compare chaque déclaration à la réalité et signale les écarts.
+`install.sh` le lance automatiquement et vous avertit.
+
+Il faut regarder **`X-Frame-Options` *et* `frame-ancestors`** — une application
+peut n'envoyer que l'un des deux — et **suivre les redirections** : Overleaf
+autorise l'encadrement sur sa page de connexion mais le refuse sur la 302 qui y
+mène. Un service encadré à tort n'affiche qu'un cadre blanc.
 
 ## Utilisation
 
@@ -147,6 +152,10 @@ Chacun a coûté du temps ; ils sont désormais évités par construction.
   un fichier régulier pour tester la disponibilité des certificats.
 - **Ports différents = origines différentes.** Une app en `frame-ancestors
   'self'` sur `:10445` ne peut pas être encadrée depuis `:443`.
+- **Un seul en-tête ne suffit pas à conclure.** Overleaf n'a pas de
+  `frame-ancestors` sur `/login`, mais envoie `X-Frame-Options: SAMEORIGIN` sur
+  toutes ses réponses et `frame-ancestors 'none'` sur la redirection. Vérifier
+  les deux en-têtes, sur toute la chaîne de redirection — d'où `check-embed.py`.
 
 ## Authentification
 
