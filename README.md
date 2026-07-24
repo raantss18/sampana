@@ -1,0 +1,200 @@
+<div align="center">
+
+<img src="web/logo.svg" width="72" alt="Sampana" />
+
+# Sampana
+
+**Un point d'entrée unique, en HTTPS, pour tous les services auto-hébergés d'une machine — accessible partout dans le monde via Tailscale, exposé à personne d'autre.**
+
+*« Sampana » : branche, ramification, en malgache.*
+
+</div>
+
+---
+
+## Ce que c'est
+
+Un dashboard qui rassemble vos services locaux (JupyterLab, Overleaf, un
+assistant IA, un terminal…) derrière **une seule URL HTTPS**, servie par Caddy
+et exposée uniquement à votre tailnet.
+
+- **Rien n'écoute sur le LAN.** Caddy est lié à `127.0.0.1` ; l'exposition passe
+  exclusivement par `tailscale serve`, qui fournit aussi le TLS.
+- **État de santé en direct.** Chaque service est sondé, le dashboard affiche
+  en ligne / dégradé / hors ligne avec la latence.
+- **Bouton retour partout.** Les services s'ouvrent dans un shell avec un
+  bandeau Sampana et un bouton *Retour*.
+- **Un seul mot de passe maître.** Une connexion, et tous les services sont
+  ouverts — y compris ceux servis sur leur propre port. Aucun mot de passe
+  interne à saisir ensuite.
+- **Terminal web** intégré, plus Tailscale SSH.
+- **Déclaratif.** Un fichier JSON décrit les services ; le Caddyfile, le
+  manifeste web et les commandes `tailscale serve` en sont dérivés.
+- **Idempotent.** `./install.sh` peut être relancé sans risque.
+
+## Le problème que ça résout
+
+Tout mettre sous des sous-chemins (`/overleaf/`, `/jupyter/`…) **ne fonctionne
+pas** : beaucoup d'applications génèrent des URL absolues depuis la racine et
+cassent derrière un préfixe.
+
+Sampana assume une **architecture hybride**, décrite service par service dans
+la configuration :
+
+| `route` | Pour qui | Résultat |
+|---|---|---|
+| `path` | Apps supportant un préfixe (`base_url`, `basePath`) | `https://hôte/jupyter/` |
+| `port` | Apps exigeant la racine | `https://hôte:10443/` |
+
+Le champ `embed` indique si l'app tolère une iframe. Sinon, sa carte ouvre un
+nouvel onglet — le dashboard reste alors accessible dans l'onglet précédent.
+
+## Installation
+
+```bash
+git clone https://github.com/raantss18/sampana.git
+cd sampana
+cp config/sampana.env.example      config/sampana.env
+cp config/services.example.json    config/services.json
+$EDITOR config/services.json       # décrivez vos services
+./install.sh
+```
+
+Prérequis : `caddy`, `ttyd`, `tailscale`, `python3`, `curl`.
+Sur Arch / EndeavourOS : `sudo pacman -S --needed caddy ttyd tailscale python`
+
+Les **certificats HTTPS Tailscale** doivent être activés pour votre tailnet :
+<https://login.tailscale.com/admin/dns> → *HTTPS Certificates* → **Enable**.
+`install.sh` s'arrête avec un message clair si ce n'est pas fait.
+
+`config/sampana.env` et `config/services.json` sont **non versionnés** : ils
+contiennent votre nom d'hôte et votre topologie.
+
+## Déclarer un service
+
+```jsonc
+{
+  "id": "jupyter",
+  "label": "JupyterLab",
+  "desc": "Notebooks et environnement ML.",
+  "icon": "notebook",
+  "route": "path",              // "path" ou "port"
+  "path": "/jupyter",
+  "upstream": "127.0.0.1:8888",
+  "embed": true,                // false si X-Frame-Options / frame-ancestors
+  "trailing_slash": true,       // le backend exige le / final
+  "probe": "/",                 // chemin sondé pour l'état de santé
+  "probe_expect": [200, 401]    // codes considérés comme sains
+}
+```
+
+Options : `strip` (retire le préfixe, pour une API), `hidden` (proxifié mais
+masqué du dashboard), `open_path`
+(ex. `/docs`), `upstream_scheme` (`https+insecure` si le backend est en TLS
+auto-signé, comme Syncthing).
+
+**Vérifier si un service accepte l'iframe :**
+```bash
+curl -sD - -o /dev/null http://127.0.0.1:PORT/ | grep -iE 'x-frame-options|frame-ancestors'
+```
+Une réponse vide = encadrable. `SAMEORIGIN` ou `frame-ancestors 'self'` avec un
+port différent = `"embed": false`.
+
+## Utilisation
+
+| Raccourci | Effet |
+|---|---|
+| `/` | Focus sur la recherche |
+| `Entrée` | Ouvre le premier résultat |
+| `Échap` | Efface la recherche · revient au dashboard depuis un service |
+
+## Architecture
+
+```
+                    tailnet (WireGuard)
+                            │
+                    tailscale serve ── TLS
+                            │
+        ┌───────────────────┼────────────────────┐
+        ▼                   ▼                    ▼
+   :443 → Caddy      :10443 → Overleaf   :10445 → Syncthing
+        │                (racine)             (racine)
+        ├── /            dashboard statique
+        ├── /app.html    shell (bandeau + bouton retour)
+        ├── /auth/*      connexion (mot de passe maître)
+        ├── /api/status  sonde de santé (stdlib Python)
+        ├── /jupyter/    → 127.0.0.1:8888
+        ├── /mi-saina/   → 127.0.0.1:3001
+        └── /terminal/   → ttyd
+```
+
+## Pièges rencontrés
+
+Chacun a coûté du temps ; ils sont désormais évités par construction.
+
+- **Un bloc Caddy `http://127.0.0.1:8088` filtre sur le `Host`.** Tailscale
+  transmet `Host: hôte.ts.net`, aucun site ne correspond, et Caddy répond
+  **200 avec un corps vide** sur *toutes* les URL. Les tests en localhost
+  passent, ceux via Tailscale non. Solution : `:8088` + `bind 127.0.0.1`.
+- **`admin off` casse `systemctl reload caddy`** : le reload passe par l'API
+  admin locale.
+- **Pas de `redir /x /x/`** devant Next.js : il retire le slash final, les deux
+  règles se renvoient la balle (308 infini). Sampana ne génère cette
+  redirection que si `trailing_slash` est déclaré.
+- **Ordre des routes** : un préfixe d'API (`/mi-saina-api`) doit être déclaré
+  avant le préfixe applicatif dont il partage le début. Le générateur trie.
+- **`tailscale cert` refuse `/dev/null`** (« not a regular file ») : utiliser
+  un fichier régulier pour tester la disponibilité des certificats.
+- **Ports différents = origines différentes.** Une app en `frame-ancestors
+  'self'` sur `:10445` ne peut pas être encadrée depuis `:443`.
+
+## Authentification
+
+Un **mot de passe maître unique** protège l'ensemble. `install.sh` le demande
+à la première exécution et n'en conserve qu'une empreinte **scrypt** dans
+`~/.config/sampana/auth.json` (mode 600) — jamais le mot de passe en clair.
+
+Pourquoi une session par cookie plutôt que Basic Auth : les cookies sont
+attachés au **nom de domaine et ignorent le port**. Une seule connexion vaut
+donc pour `https://hôte/` *et* `https://hôte:10443/`. Basic Auth aurait
+redemandé le mot de passe sur chaque port, chacun étant une origine distincte.
+
+Caddy interroge le service d'authentification via `forward_auth` avant chaque
+requête. Les pages de connexion sont exclues par un matcher : sans cela,
+`/auth/login` se protégerait elle-même et le navigateur bouclerait sur la
+redirection.
+
+```bash
+rm ~/.config/sampana/auth.json && ./install.sh   # changer le mot de passe
+```
+
+Session valable 30 jours (`ttl` dans `auth.json`). Déconnexion : `/auth/logout`.
+
+### Ce que Sampana ne protège pas
+
+Les services n'ont **plus de mot de passe propre** : ils sont protégés en
+amont. Cela suppose qu'ils ne soient joignables que via Sampana.
+Vérifiez qu'aucun n'écoute sur une adresse routable :
+
+```bash
+ss -tlnp | grep -v '127.0.0.1'
+```
+
+Un service qui écoute sur `0.0.0.0` reste accessible depuis le LAN **sans**
+passer par le mot de passe maître.
+
+Enfin, `AUTH_ENABLED=0` désactive toute authentification : à ne faire que si
+chaque service porte déjà la sienne.
+
+## Désinstallation
+
+```bash
+./uninstall.sh
+```
+
+Retire uniquement ce que Sampana a installé, restaure le `Caddyfile` précédent,
+et ne touche à aucun service proxifié.
+
+## Licence
+
+MIT

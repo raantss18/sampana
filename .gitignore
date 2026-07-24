@@ -1,0 +1,11 @@
+# Contient le hostname Tailscale et la topologie de la machine : jamais versionne.
+config/sampana.env
+config/services.json
+
+# Fichiers generes par bin/render.py
+build/
+
+# Divers
+__pycache__/
+*.pyc
+.DS_Store

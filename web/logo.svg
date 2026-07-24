@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Sampana</title>
+  <g fill="none" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 30V17"/>
+    <path d="M16 17L7 8M16 17V6M16 17l9-9"/>
+  </g>
+  <g fill="#38bdf8">
+    <circle cx="7" cy="7" r="3"/>
+    <circle cx="16" cy="5" r="3"/>
+    <circle cx="25" cy="7" r="3"/>
+  </g>
+</svg>

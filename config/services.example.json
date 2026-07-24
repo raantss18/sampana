@@ -1,0 +1,134 @@
+{
+  "_comment": [
+    "Declaration des services. Copier en config/services.json puis adapter.",
+    "",
+    "route = comment le service est expose :",
+    "  'path'  -> servi sous un sous-chemin du dashboard (meme origine).",
+    "            Le service DOIT supporter un prefixe d'URL (base_url, basePath...).",
+    "  'port'  -> expose sur son propre port HTTPS via `tailscale serve`.",
+    "            Pour tout ce qui genere des URL absolues depuis la racine.",
+    "",
+    "embed = le service accepte-t-il d'etre affiche dans une iframe ?",
+    "  false si l'app renvoie X-Frame-Options ou frame-ancestors restrictif.",
+    "  Un service non encadrable s'ouvre dans un nouvel onglet (pas de bandeau).",
+    "",
+    "strip = retirer le prefixe avant de transmettre au backend (API only).",
+    "probe = chemin interroge pour l'etat de sante (defaut : /)."
+  ],
+  "groups": [
+    {
+      "name": "Travail",
+      "services": [
+        {
+          "id": "jupyter",
+          "label": "JupyterLab",
+          "desc": "Notebooks, SageMath, environnement ML.",
+          "icon": "notebook",
+          "route": "path",
+          "path": "/jupyter",
+          "upstream": "127.0.0.1:8888",
+          "embed": true,
+          "trailing_slash": true
+        },
+        {
+          "id": "overleaf",
+          "label": "Overleaf",
+          "desc": "Editeur LaTeX collaboratif, TeX Live complet.",
+          "icon": "document",
+          "route": "port",
+          "port": 10443,
+          "upstream": "127.0.0.1:80",
+          "embed": true,
+          "probe": "/login"
+        },
+        {
+          "id": "lean4web",
+          "label": "Lean4Web",
+          "desc": "Assistant de preuve Lean 4 dans le navigateur.",
+          "icon": "sigma",
+          "route": "port",
+          "port": 10444,
+          "upstream": "127.0.0.1:8890",
+          "embed": true
+        }
+      ]
+    },
+    {
+      "name": "Assistants IA",
+      "services": [
+        {
+          "id": "mi-saina",
+          "label": "Mi-Saina",
+          "desc": "Assistant IA local, FastAPI + Next.js.",
+          "icon": "robot",
+          "route": "path",
+          "path": "/mi-saina",
+          "upstream": "127.0.0.1:3001",
+          "embed": true
+        },
+        {
+          "id": "mi-saina-api",
+          "label": "Mi-Saina API",
+          "desc": "API backend de Mi-Saina.",
+          "icon": "api",
+          "route": "path",
+          "path": "/mi-saina-api",
+          "upstream": "127.0.0.1:8000",
+          "strip": true,
+          "hidden": true,
+          "probe": "/health"
+        },
+        {
+          "id": "open-webui",
+          "label": "Open WebUI",
+          "desc": "Interface de chat LLM.",
+          "icon": "chat",
+          "route": "port",
+          "port": 10446,
+          "upstream": "127.0.0.1:3000",
+          "embed": true
+        },
+        {
+          "id": "ai-assist",
+          "label": "AI Assist",
+          "desc": "API d'assistance LaTeX, Python et Sage.",
+          "icon": "sparkle",
+          "route": "port",
+          "port": 8443,
+          "upstream": "127.0.0.1:8420",
+          "embed": true,
+          "open_path": "/docs",
+          "probe": "/health"
+        }
+      ]
+    },
+    {
+      "name": "Systeme",
+      "services": [
+        {
+          "id": "terminal",
+          "label": "Terminal",
+          "desc": "Shell web sur la machine.",
+          "icon": "terminal",
+          "route": "path",
+          "path": "/terminal",
+          "upstream": "127.0.0.1:7681",
+          "embed": true,
+          "probe": "/terminal/"
+        },
+        {
+          "id": "syncthing",
+          "label": "Syncthing",
+          "desc": "Synchronisation de fichiers entre appareils.",
+          "icon": "sync",
+          "route": "port",
+          "port": 10445,
+          "upstream": "127.0.0.1:8384",
+          "upstream_scheme": "https+insecure",
+          "embed": false,
+          "embed_reason": "Syncthing renvoie X-Frame-Options: SAMEORIGIN"
+        }
+      ]
+    }
+  ]
+}

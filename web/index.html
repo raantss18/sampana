@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sampana</title>
+<link rel="stylesheet" href="/sampana.css" />
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  body { display: flex; flex-direction: column; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 22px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .spacer { flex: 1 1 auto; }
+
+  .search {
+    position: relative; flex: 0 1 260px; min-width: 160px;
+  }
+  .search input {
+    width: 100%; padding: 7px 11px 7px 32px;
+    background: var(--surface); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; font-size: 13.5px;
+  }
+  .search input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .search svg {
+    position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+    color: var(--faint); pointer-events: none;
+  }
+  .search kbd {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font: 11px var(--mono); color: var(--faint);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+  }
+
+  main { flex: 1 1 auto; width: 100%; max-width: 1080px; margin: 0 auto; padding: 26px 22px 60px; }
+
+  .summary {
+    display: flex; align-items: center; gap: 9px;
+    margin-bottom: 26px; font-size: 13.5px; color: var(--dim);
+  }
+
+  h2 {
+    font-size: 12px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: 0.9px; color: var(--dim);
+    margin: 30px 0 13px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  h2:first-of-type { margin-top: 0; }
+
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+
+  a.card {
+    display: flex; flex-direction: column; gap: 9px;
+    padding: 17px 18px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); text-decoration: none; color: inherit;
+    transition: border-color .15s, transform .15s, box-shadow .15s;
+  }
+  a.card:hover, a.card:focus-visible {
+    border-color: var(--accent); transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.16); outline: none;
+  }
+  .card-top { display: flex; align-items: center; gap: 10px; }
+  .card-icon {
+    width: 34px; height: 34px; flex: 0 0 auto;
+    display: grid; place-items: center; border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+  .card-name { font-size: 15.5px; font-weight: 600; }
+  .card-desc { color: var(--dim); font-size: 13px; flex: 1 1 auto; }
+  .card-foot {
+    display: flex; align-items: center; gap: 7px;
+    font: 11.5px var(--mono); color: var(--faint);
+  }
+  .tag {
+    margin-left: auto; font: 10.5px var(--sans); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .4px;
+    border: 1px solid var(--line); border-radius: 20px; padding: 1px 7px;
+    color: var(--dim);
+  }
+
+  .empty { color: var(--dim); padding: 40px 0; text-align: center; }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 16px 22px;
+    color: var(--faint); font-size: 12px; text-align: center;
+  }
+  footer code {
+    font-family: var(--mono); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg class="logo" width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M16 30V17" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M16 17L7 8M16 17L16 6M16 17L25 8" stroke="currentColor" stroke-width="2.4"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="7" cy="7" r="3" fill="currentColor"/>
+      <circle cx="16" cy="5" r="3" fill="currentColor"/>
+      <circle cx="25" cy="7" r="3" fill="currentColor"/>
+    </svg>
+    <div>
+      <div class="brand-name">Sampana</div>
+      <div class="brand-sub" id="host">—</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+      <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/>
+    </svg>
+    <input id="q" type="search" placeholder="Rechercher…" autocomplete="off" aria-label="Rechercher un service" />
+    <kbd>/</kbd>
+  </div>
+
+  <button class="btn" id="theme" title="Basculer le thème" aria-label="Basculer le thème">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</header>
+
+<main>
+  <div class="summary">
+    <span class="dot pending" id="gdot"></span>
+    <span id="gtxt">Vérification des services…</span>
+  </div>
+  <div id="groups"></div>
+  <div class="empty" id="empty" hidden>Aucun service ne correspond.</div>
+</main>
+
+<footer>
+  <code>Ctrl</code>+<code>Shift</code>+<code>G</code> style ·
+  <code>Ctrl</code>+<code>Shift</code>+<code>D</code> diagnostic —
+  dans Overleaf et JupyterLab &nbsp;·&nbsp;
+  SSH : <code id="ssh">—</code>
+</footer>
+
+<script src="/icons.js"></script>
+<script>
+(async () => {
+  const $ = (s) => document.querySelector(s);
+
+  // ── Theme : preference persistee, sinon celle du systeme.
+  const saved = localStorage.getItem('sampana-theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  $('#theme').onclick = () => {
+    const cur = document.documentElement.dataset.theme
+      || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('sampana-theme', next);
+  };
+
+  // ── Manifeste des services.
+  let cfg;
+  try {
+    cfg = await (await fetch('/services.json', { cache: 'no-store' })).json();
+  } catch (e) {
+    $('#gtxt').textContent = 'Impossible de charger la liste des services.';
+    $('#gdot').className = 'dot down';
+    return;
+  }
+
+  $('#host').textContent = cfg.host;
+  $('#ssh').textContent = 'ssh ' + cfg.host.split('.')[0];
+
+  // Une carte pointe vers le shell (bandeau + retour) si le service accepte
+  // d'etre encadre, sinon directement vers son URL dans un nouvel onglet.
+  const urlFor = (s) =>
+    s.route === 'path' ? s.path + '/' : `https://${location.hostname}:${s.port}${s.openPath}`;
+
+  const cards = new Map();
+  const container = $('#groups');
+
+  for (const group of cfg.groups) {
+    const h = document.createElement('h2');
+    h.textContent = group.name;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+
+    for (const s of group.services) {
+      const a = document.createElement('a');
+      a.className = 'card';
+      a.dataset.search = (s.label + ' ' + s.desc).toLowerCase();
+
+      if (s.embed) {
+        a.href = '/app.html?s=' + encodeURIComponent(s.id);
+      } else {
+        a.href = urlFor(s);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.title = s.embedReason || '';
+      }
+
+      a.innerHTML = `
+        <div class="card-top">
+          <div class="card-icon">${window.SAMPANA_ICONS[s.icon] || window.SAMPANA_ICONS.box}</div>
+          <div class="card-name">${s.label}</div>
+        </div>
+        <div class="card-desc">${s.desc}</div>
+        <div class="card-foot">
+          <span class="dot pending" data-dot="${s.id}"></span>
+          <span data-state="${s.id}">…</span>
+          ${s.locked ? '<span class="tag">mot de passe</span>' : ''}
+          ${!s.embed ? '<span class="tag">nouvel onglet</span>' : ''}
+        </div>`;
+      grid.append(a);
+      cards.set(s.id, a);
+    }
+    container.append(h, grid);
+  }
+
+  // ── Recherche instantanee.
+  const q = $('#q');
+  q.addEventListener('input', () => {
+    const v = q.value.trim().toLowerCase();
+    let visible = 0;
+    for (const [, el] of cards) {
+      const hit = !v || el.dataset.search.includes(v);
+      el.style.display = hit ? '' : 'none';
+      if (hit) visible++;
+    }
+    for (const h of container.querySelectorAll('h2')) {
+      const grid = h.nextElementSibling;
+      const any = [...grid.children].some((c) => c.style.display !== 'none');
+      h.style.display = any ? '' : 'none';
+      grid.style.display = any ? '' : 'none';
+    }
+    $('#empty').hidden = visible > 0;
+  });
+
+  addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== q) {
+      e.preventDefault();
+      q.focus();
+    } else if (e.key === 'Enter' && document.activeElement === q) {
+      const first = [...cards.values()].find((c) => c.style.display !== 'none');
+      if (first) first.click();
+    } else if (e.key === 'Escape' && document.activeElement === q) {
+      q.value = '';
+      q.dispatchEvent(new Event('input'));
+      q.blur();
+    }
+  });
+
+  // ── Etat de sante, rafraichi periodiquement.
+  async function refresh() {
+    let data;
+    try {
+      data = await (await fetch('/api/status', { cache: 'no-store' })).json();
+    } catch {
+      $('#gdot').className = 'dot down';
+      $('#gtxt').textContent = 'Service de santé injoignable.';
+      return;
+    }
+    for (const s of data.services) {
+      const dot = document.querySelector(`[data-dot="${s.id}"]`);
+      const txt = document.querySelector(`[data-state="${s.id}"]`);
+      if (!dot) continue;
+      dot.className = 'dot ' + s.status;
+      txt.textContent =
+        s.status === 'up' ? `en ligne · ${s.ms} ms`
+        : s.status === 'degraded' ? `HTTP ${s.code}`
+        : (s.error || 'hors ligne');
+    }
+    const all = data.up === data.total;
+    $('#gdot').className = 'dot ' + (all ? 'up' : data.up ? 'degraded' : 'down');
+    $('#gtxt').textContent = `${data.up} service${data.up > 1 ? 's' : ''} sur ${data.total} en ligne`;
+  }
+
+  refresh();
+  setInterval(refresh, 15000);
+})();
+</script>
+
+</body>
+</html>

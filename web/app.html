@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sampana</title>
+<link rel="stylesheet" href="/sampana.css" />
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  .bar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .sep { width: 1px; height: 22px; background: var(--line); }
+  .bar .name { font-weight: 600; font-size: 14.5px; }
+  .bar .spacer { flex: 1 1 auto; }
+  .bar .state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--dim); }
+
+  .frame-wrap { flex: 1 1 auto; position: relative; background: var(--bg); }
+  iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+  :root[data-theme='dark'] iframe { background: var(--bg); }
+
+  .veil {
+    position: absolute; inset: 0;
+    display: grid; place-items: center; gap: 12px;
+    background: var(--bg); color: var(--dim); font-size: 14px;
+    transition: opacity .25s;
+  }
+  .veil[hidden] { display: none; }
+  .veil .inner { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 20px; }
+  .spin {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2.5px solid var(--line); border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Sur mobile, chaque pixel vertical compte. */
+  @media (max-width: 560px) {
+    .bar { padding: 7px 10px; gap: 8px; }
+    .bar .state, .bar .sep { display: none; }
+    .btn { padding: 6px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <a class="btn" href="/" title="Retour au dashboard (Échap)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 5l-7 7 7 7"/>
+    </svg>
+    Retour
+  </a>
+
+  <div class="sep"></div>
+
+  <svg class="logo" width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <path d="M16 30V17" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M16 17L7 8M16 17L16 6M16 17L25 8" stroke="currentColor" stroke-width="2.4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="7" cy="7" r="3" fill="currentColor"/>
+    <circle cx="16" cy="5" r="3" fill="currentColor"/>
+    <circle cx="25" cy="7" r="3" fill="currentColor"/>
+  </svg>
+  <span class="name" id="name">…</span>
+
+  <div class="spacer"></div>
+
+  <div class="state"><span class="dot pending" id="dot"></span><span id="stxt">…</span></div>
+
+  <a class="btn" id="new" target="_blank" rel="noopener" title="Ouvrir dans un nouvel onglet">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 4h6v6"/><path d="M20 4l-9 9"/>
+      <path d="M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>
+    </svg>
+  </a>
+</div>
+
+<div class="frame-wrap">
+  <div class="veil" id="veil">
+    <div class="inner">
+      <div class="spin"></div>
+      <div id="vtxt">Chargement…</div>
+    </div>
+  </div>
+  <iframe id="f" title="Service" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+</div>
+
+<script>
+(async () => {
+  const $ = (s) => document.querySelector(s);
+
+  const saved = localStorage.getItem('sampana-theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+
+  const id = new URLSearchParams(location.search).get('s');
+
+  let cfg;
+  try {
+    cfg = await (await fetch('/services.json', { cache: 'no-store' })).json();
+  } catch {
+    $('#vtxt').textContent = 'Impossible de charger la configuration.';
+    $('.spin').remove();
+    return;
+  }
+
+  const svc = cfg.groups.flatMap((g) => g.services).find((s) => s.id === id);
+  if (!svc) {
+    document.title = 'Sampana — introuvable';
+    $('#name').textContent = 'Service inconnu';
+    $('#vtxt').textContent = `Aucun service nommé « ${id ?? ''} ».`;
+    $('.spin').remove();
+    return;
+  }
+
+  const url =
+    svc.route === 'path'
+      ? svc.path + '/'
+      : `https://${location.hostname}:${svc.port}${svc.openPath}`;
+
+  document.title = `${svc.label} — Sampana`;
+  $('#name').textContent = svc.label;
+  $('#new').href = url;
+
+  // Un service qui refuse l'encadrement n'a rien a faire ici : on redirige
+  // plutot que d'afficher une iframe vide.
+  if (!svc.embed) {
+    location.replace(url);
+    return;
+  }
+
+  $('#f').src = url;
+  $('#f').addEventListener('load', () => {
+    $('#veil').hidden = true;
+  });
+
+  // Filet : si l'iframe reste blanche (CSP inattendue), on le dit au lieu de
+  // laisser tourner le spinner indefiniment.
+  setTimeout(() => {
+    if (!$('#veil').hidden) {
+      $('.spin')?.remove();
+      $('#vtxt').innerHTML =
+        `Le service met du temps à répondre.<br><a class="btn" style="margin-top:12px" href="${url}" target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a>`;
+    }
+  }, 12000);
+
+  // Échap revient au dashboard, sauf si le focus est dans l'iframe (le
+  // terminal et l'editeur ont leurs propres usages de la touche).
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.activeElement?.tagName !== 'IFRAME') {
+      location.href = '/';
+    }
+  });
+
+  async function refresh() {
+    try {
+      const data = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      const s = data.services.find((x) => x.id === id);
+      if (!s) return;
+      $('#dot').className = 'dot ' + s.status;
+      $('#stxt').textContent =
+        s.status === 'up' ? `en ligne · ${s.ms} ms`
+        : s.status === 'degraded' ? `HTTP ${s.code}`
+        : (s.error || 'hors ligne');
+    } catch {
+      $('#dot').className = 'dot down';
+      $('#stxt').textContent = 'état inconnu';
+    }
+  }
+  refresh();
+  setInterval(refresh, 15000);
+})();
+</script>
+
+</body>
+</html>

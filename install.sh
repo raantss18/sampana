@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+# Sampana — installation / mise a jour du dashboard.
+# Idempotent : relancer ce script est sans danger, il converge vers l'etat cible.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+c_ok()   { printf '\033[32m  ok  \033[0m %s\n' "$*"; }
+c_info() { printf '\033[36m ---- \033[0m %s\n' "$*"; }
+c_warn() { printf '\033[33m warn \033[0m %s\n' "$*"; }
+c_err()  { printf '\033[31m FAIL \033[0m %s\n' "$*" >&2; }
+step()   { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+
+# ── 1. Prerequis ────────────────────────────────────────────────────────
+step "Prerequis"
+
+missing=()
+for c in caddy ttyd tailscale python3 curl; do
+    command -v "$c" >/dev/null 2>&1 || missing+=("$c")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+    c_err "Commandes absentes : ${missing[*]}"
+    echo "  Arch / EndeavourOS :  sudo pacman -S --needed ${missing[*]}"
+    exit 1
+fi
+c_ok "caddy, ttyd, tailscale, python3, curl presents"
+
+if ! tailscale status >/dev/null 2>&1; then
+    c_err "Tailscale n'est pas connecte. Lance : sudo tailscale up"
+    exit 1
+fi
+c_ok "Tailscale connecte"
+
+# ── 2. Configuration ────────────────────────────────────────────────────
+step "Configuration"
+
+for f in sampana.env services.json; do
+    if [ ! -f "config/$f" ]; then
+        src="config/${f%.json}.example.json"
+        [ "$f" = "sampana.env" ] && src="config/sampana.env.example"
+        cp "$src" "config/$f"
+        c_warn "config/$f cree depuis l'exemple — a adapter avant usage reel"
+    fi
+done
+
+# Deduit le hostname Tailscale si l'utilisateur ne l'a pas renseigne.
+if grep -q '^SAMPANA_HOST=ma-machine' config/sampana.env; then
+    detected="$(tailscale status --json | python3 -c \
+        'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+    sed -i "s|^SAMPANA_HOST=.*|SAMPANA_HOST=$detected|" config/sampana.env
+    c_ok "SAMPANA_HOST detecte : $detected"
+fi
+
+# shellcheck disable=SC1091
+set -a; source config/sampana.env; set +a
+c_ok "hote=$SAMPANA_HOST  caddy=$CADDY_PORT  sante=$HEALTH_PORT"
+
+# ── 3. Generation ───────────────────────────────────────────────────────
+step "Generation des fichiers"
+python3 bin/render.py
+c_ok "Caddyfile, manifeste web et commandes serve generes"
+
+# ── 4. Fichiers web ─────────────────────────────────────────────────────
+step "Publication du dashboard"
+
+sudo install -d -o caddy -g caddy "$WEB_ROOT"
+for f in web/*; do
+    sudo install -o caddy -g caddy -m 644 "$f" "$WEB_ROOT/$(basename "$f")"
+done
+sudo install -o caddy -g caddy -m 644 build/services.web.json "$WEB_ROOT/services.json"
+c_ok "$WEB_ROOT mis a jour"
+
+# ── 5. Caddy ────────────────────────────────────────────────────────────
+step "Caddy"
+
+sudo install -d /etc/caddy
+[ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.pre-sampana ] && \
+    sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.pre-sampana && \
+    c_info "Caddyfile precedent sauvegarde en /etc/caddy/Caddyfile.pre-sampana"
+
+# Valider AVANT d'installer : sinon un fichier invalide resterait en place et
+# Caddy refuserait de demarrer au prochain reboot.
+if ! caddy validate --config build/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+    c_err "Caddyfile genere invalide, rien n'a ete installe :"
+    caddy validate --config build/Caddyfile --adapter caddyfile 2>&1 \
+        | grep -v '"level":"info"' | tail -5
+    exit 1
+fi
+sudo install -m 644 build/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl enable caddy >/dev/null 2>&1
+sudo systemctl restart caddy
+c_ok "Caddy valide, actif et active au demarrage"
+
+# ── 6. Service de sante ─────────────────────────────────────────────────
+step "Service de sante"
+
+install -d "$HOME/.local/share/sampana" "$HOME/.config/systemd/user"
+install -m 755 services/health.py "$HOME/.local/share/sampana/health.py"
+install -m 644 build/health.targets.json "$HOME/.local/share/sampana/targets.json"
+
+cat > "$HOME/.config/systemd/user/sampana-health.service" <<EOF
+[Unit]
+Description=Sampana - sonde de sante des services
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/share/sampana/health.py %h/.local/share/sampana/targets.json $HEALTH_PORT
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now sampana-health >/dev/null 2>&1
+systemctl --user restart sampana-health
+c_ok "sampana-health actif sur 127.0.0.1:$HEALTH_PORT"
+
+# ── 6b. Mot de passe maitre ─────────────────────────────────────────────
+step "Mot de passe maitre"
+
+AUTH_CONF="$HOME/.config/sampana/auth.json"
+install -d -m 700 "$(dirname "$AUTH_CONF")"
+
+if [ "${AUTH_ENABLED:-1}" = "1" ]; then
+    if [ ! -f "$AUTH_CONF" ]; then
+        if [ -n "${SAMPANA_PASSWORD:-}" ]; then
+            pw="$SAMPANA_PASSWORD"
+            c_info "Mot de passe pris depuis la variable SAMPANA_PASSWORD"
+        elif [ -t 0 ]; then
+            read -r -s -p "  Choisis le mot de passe maitre : " pw; echo
+            read -r -s -p "  Confirme                       : " pw2; echo
+            [ "$pw" = "$pw2" ] || { c_err "Les mots de passe different."; exit 1; }
+            [ ${#pw} -ge 8 ] || { c_err "8 caracteres minimum."; exit 1; }
+        else
+            pw="$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)"
+            c_warn "Mot de passe maitre genere : $pw"
+        fi
+        umask 077
+        python3 services/auth.py --init "$pw" > "$AUTH_CONF"
+        unset pw pw2
+        c_ok "Empreinte scrypt et cle de session enregistrees dans $AUTH_CONF"
+    else
+        c_info "Mot de passe maitre existant conserve ($AUTH_CONF)"
+        c_info "Pour le changer : rm $AUTH_CONF && ./install.sh"
+    fi
+    chmod 600 "$AUTH_CONF"
+
+    install -m 755 services/auth.py "$HOME/.local/share/sampana/auth.py"
+    cat > "$HOME/.config/systemd/user/sampana-auth.service" <<EOF
+[Unit]
+Description=Sampana - authentification unique
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/share/sampana/auth.py %h/.config/sampana/auth.json $AUTH_PORT $SAMPANA_HOST
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable --now sampana-auth >/dev/null 2>&1
+    systemctl --user restart sampana-auth
+    c_ok "sampana-auth actif sur 127.0.0.1:$AUTH_PORT"
+else
+    systemctl --user disable --now sampana-auth 2>/dev/null || true
+    c_warn "Authentification DESACTIVEE (AUTH_ENABLED=0) — tout le tailnet a acces"
+fi
+
+# ── 7. Terminal web ─────────────────────────────────────────────────────
+step "Terminal web (ttyd)"
+
+# ttyd n'a plus de mot de passe propre : c'est Caddy qui protege l'acces avec
+# le mot de passe maitre. Un second prompt serait redondant.
+rm -f "$HOME/.config/ttyd-credential"
+
+cat > "$HOME/.config/systemd/user/ttyd.service" <<EOF
+[Unit]
+Description=ttyd - terminal web (servi sous /terminal par Caddy)
+After=network.target
+
+[Service]
+Type=simple
+# -W : autorise la saisie (lecture seule par defaut depuis ttyd 1.7)
+# -b : ttyd genere ses URL sous /terminal, pour le reverse proxy
+# Pas de -c : l'authentification est assuree en amont par Caddy avec le mot de
+# passe maitre. ttyd n'ecoute que sur la boucle locale.
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p $TTYD_PORT -b /terminal -W /bin/bash
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now ttyd >/dev/null 2>&1
+systemctl --user restart ttyd
+c_ok "ttyd actif sur 127.0.0.1:$TTYD_PORT"
+
+# ── 8. Demarrage sans session graphique ─────────────────────────────────
+step "Persistance au demarrage"
+
+if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; then
+    sudo loginctl enable-linger "$USER"
+    c_ok "Linger active : les unites utilisateur demarreront au boot sans login"
+else
+    c_ok "Linger deja actif"
+fi
+
+# ── 9. Exposition Tailscale ─────────────────────────────────────────────
+step "Exposition Tailscale"
+
+# `tailscale cert` exige des fichiers reguliers : /dev/null est refuse.
+_certdir="$(mktemp -d)"
+trap 'rm -rf "$_certdir"' EXIT
+if ! tailscale cert --cert-file "$_certdir/c" --key-file "$_certdir/k" \
+        "$SAMPANA_HOST" >/dev/null 2>&1; then
+    c_err "Impossible d'obtenir un certificat TLS pour $SAMPANA_HOST."
+    echo "  Active les certificats HTTPS : https://login.tailscale.com/admin/dns"
+    echo "  (section « HTTPS Certificates » -> Enable), puis relance ce script."
+    exit 1
+fi
+c_ok "Certificats HTTPS disponibles"
+
+bash build/serve.sh
+c_ok "Mappings tailscale serve appliques"
+
+# ── 10. Verification ────────────────────────────────────────────────────
+step "Verification"
+
+fail=0
+check() {
+    local label="$1" url="$2" want="${3:-200}"
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' -L -m 25 "$url" || echo 000)"
+    if [[ " $want " == *" $code "* ]]; then
+        c_ok "$(printf '%-14s' "$label") $code"
+    else
+        c_err "$(printf '%-14s' "$label") $code (attendu : $want)"
+        fail=1
+    fi
+}
+
+if [ "${AUTH_ENABLED:-1}" = "1" ]; then
+    # Sans session, tout doit rediriger vers la page de connexion : c'est la
+    # preuve que le mot de passe maitre s'applique reellement.
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 25 "https://$SAMPANA_HOST/" || echo 000)"
+    if [ "$code" = "302" ]; then
+        c_ok "$(printf '%-14s' 'protection') 302 vers la page de connexion"
+    else
+        c_err "$(printf '%-14s' 'protection') $code (302 attendu — l'auth ne s'applique pas)"
+        fail=1
+    fi
+    # La page de connexion, elle, doit rester accessible sans session.
+    check "connexion" "https://$SAMPANA_HOST/auth/login"
+    for p in 10443 10444 10445 10446 8443; do
+        c="$(curl -s -o /dev/null -w '%{http_code}' -m 25 "https://$SAMPANA_HOST:$p/" || echo 000)"
+        [ "$c" = "302" ] || { c_err "port $p non protege (HTTP $c)"; fail=1; }
+    done
+    [ "$fail" -eq 0 ] && c_ok "$(printf '%-14s' 'ports dedies') tous proteges"
+else
+    check "dashboard" "https://$SAMPANA_HOST/"
+    check "shell"     "https://$SAMPANA_HOST/app.html?s=terminal"
+fi
+
+# Le detail de sante est lu directement sur la boucle locale : via l'URL
+# publique il serait, a juste titre, derriere l'authentification.
+python3 - "$HEALTH_PORT" <<'PY'
+import json, sys, urllib.request
+with urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/", timeout=25) as r:
+    d = json.load(r)
+print(f"\n  {d['up']}/{d['total']} services en ligne")
+for s in d["services"]:
+    mark = "ok  " if s["status"] == "up" else "----" if s["status"] == "degraded" else "DOWN"
+    detail = f"{s.get('ms', '?')} ms" if s["status"] == "up" else s.get("error") or f"HTTP {s.get('code')}"
+    print(f"    [{mark}] {s['label']:<16} {detail}")
+PY
+
+echo
+if [ "$fail" -eq 0 ]; then
+    printf '\033[32m✓ Sampana est en ligne : https://%s\033[0m\n' "$SAMPANA_HOST"
+else
+    c_err "Certaines verifications ont echoue (voir ci-dessus)."
+    exit 1
+fi
