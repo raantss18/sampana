@@ -39,7 +39,8 @@
           "port": 10443,
           "upstream": "127.0.0.1:80",
           "embed": true,
-          "probe": "/login"
+          "probe": "/login",
+          "open_path": "/project"
         },
         {
           "id": "lean4web",
