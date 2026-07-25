@@ -199,13 +199,29 @@
         <b>Fichiers partagés</b>
         <span id="shareDir"></span>
       </div>
-      <div class="cfg-row" style="margin-bottom:10px">
-        <input id="fileInput" type="file" multiple style="min-width:200px">
-        <!-- webkitdirectory : seul moyen, dans un navigateur, de deposer un
-             dossier entier. Le chemin relatif de chaque fichier est conserve. -->
-        <input id="dirInput" type="file" webkitdirectory directory
-               style="min-width:200px" title="Déposer un dossier entier">
-        <button id="fileSend" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Déposer</button>
+      <!-- Les champs natifs restent, mais masques : leur libelle (« Choose
+           Files ») vient du navigateur, n'est ni traduisible ni stylable, et
+           il en fallait deux — un pour les fichiers, un pour les dossiers,
+           `webkitdirectory` ne pouvant pas cohabiter avec `multiple`.
+           Une zone unique les declenche a leur place. -->
+      <input id="fileInput" type="file" multiple hidden>
+      <input id="dirInput" type="file" webkitdirectory directory hidden>
+
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-label="Déposer des fichiers ou un dossier">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M12 16V4"/><path d="M7 9l5-5 5 5"/>
+          <path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/>
+        </svg>
+        <div class="drop-txt">
+          <b>Glissez des fichiers ou un dossier ici</b>
+          <span>ou <u>parcourir</u> — l'arborescence est conservée</span>
+        </div>
+      </div>
+
+      <div class="drop-menu" id="dropMenu" hidden>
+        <button type="button" data-pick="files">📄 Choisir des fichiers</button>
+        <button type="button" data-pick="dir">📁 Choisir un dossier</button>
       </div>
       <p class="cfg-msg" id="fileMsg"></p>
       <table id="fileTable"><tbody></tbody></table>
@@ -396,6 +412,33 @@
   .cfg-msg { margin: 9px 0 0; font-size: 12.5px; min-height: 1em; }
   .cfg-msg.ok  { color: #10b981; }
   .cfg-msg.err { color: var(--err, #f85149); }
+
+  /* Zone de dépôt : une seule cible, pour les fichiers comme pour les
+     dossiers. Grande et franche — elle doit rester facile à viser au doigt. */
+  .drop {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px; margin-bottom: 10px; cursor: pointer;
+    border: 1.5px dashed var(--line); border-radius: 12px;
+    background: var(--bg); transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop:focus-visible { border-color: var(--accent); outline: none; }
+  .drop.actif {
+    border-color: var(--accent); border-style: solid;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .drop svg { width: 26px; height: 26px; flex: 0 0 auto; color: var(--dim); }
+  .drop.actif svg { color: var(--accent); }
+  .drop-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .drop-txt b { font-size: 13.5px; font-weight: 600; }
+  .drop-txt span { font-size: 12.5px; color: var(--dim); }
+
+  .drop-menu { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .drop-menu button {
+    background: var(--surface); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  .drop-menu button:hover { border-color: var(--accent); }
 </style>
 
 <script>
@@ -520,36 +563,96 @@
     refreshFiles();
   });
 
-  document.getElementById('fileSend').addEventListener('click', async () => {
-    const fichiers = document.getElementById('fileInput');
-    const dossier  = document.getElementById('dirInput');
-    // Les deux champs sont fusionnés : on peut déposer des fichiers isolés et
-    // un dossier dans le même geste.
-    const tout = [...fichiers.files, ...dossier.files];
-    if (!tout.length) { msg(fileMsg, 'Choisissez un fichier ou un dossier.', false); return; }
+  // ── Dépôt : une seule zone pour les fichiers et les dossiers ─────
+  const drop     = document.getElementById('drop');
+  const dropMenu = document.getElementById('dropMenu');
+  const inFiles  = document.getElementById('fileInput');
+  const inDir    = document.getElementById('dirInput');
 
+  // Envoi commun. `chemin` porte l'arborescence : « TP3/donnees/x.csv ».
+  const envoyer = async (entrees) => {
+    if (!entrees.length) { msg(fileMsg, 'Rien à déposer.', false); return; }
     let ok = 0; const erreurs = [];
-    for (const [i, f] of tout.entries()) {
-      // webkitRelativePath porte l'arborescence d'origine ; il est vide pour
-      // un fichier choisi isolément.
-      const chemin = f.webkitRelativePath || f.name;
+    for (const [i, { fichier, chemin }] of entrees.entries()) {
       fileMsg.className = 'cfg-msg';
-      fileMsg.textContent = `Envoi ${i + 1}/${tout.length} — ${chemin}`;
+      fileMsg.textContent = `Envoi ${i + 1}/${entrees.length} — ${chemin}`;
       // Corps brut plutôt que multipart : la bibliothèque standard n'offre plus
       // de parseur multipart, et un envoi direct suffit.
       const r = await fetch(`/guest-admin/upload?name=${encodeURIComponent(chemin)}`,
-                            { method: 'POST', body: f });
+                            { method: 'POST', body: fichier });
       if (r.ok) ok++;
       else {
         let m = ''; try { m = (await r.json()).error; } catch {}
         erreurs.push(`${chemin} : ${m || r.status}`);
       }
     }
-    fichiers.value = ''; dossier.value = '';
     msg(fileMsg, erreurs.length
       ? `${ok} déposé(s). Échecs : ${erreurs.slice(0, 3).join(' · ')}`
       : `${ok} fichier(s) déposé(s).`, !erreurs.length);
     refreshFiles();
+  };
+
+  // Un dossier glissé n'expose pas ses fichiers directement : il faut le
+  // parcourir via l'API d'entrées. `readEntries` renvoie des lots successifs
+  // et doit être rappelé jusqu'à ce qu'il rende une liste vide — s'arrêter au
+  // premier lot perdrait silencieusement les fichiers au-delà d'une centaine.
+  const parcourir = async (entry, prefixe = '') => {
+    if (entry.isFile) {
+      const fichier = await new Promise((res, rej) => entry.file(res, rej));
+      return [{ fichier, chemin: prefixe + entry.name }];
+    }
+    const lecteur = entry.createReader();
+    const out = [];
+    for (;;) {
+      const lot = await new Promise((res, rej) => lecteur.readEntries(res, rej));
+      if (!lot.length) break;
+      for (const e of lot) out.push(...await parcourir(e, `${prefixe}${entry.name}/`));
+    }
+    return out;
+  };
+
+  drop.addEventListener('click', () => { dropMenu.hidden = !dropMenu.hidden; });
+  drop.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drop.click(); }
+  });
+  dropMenu.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-pick]');
+    if (!b) return;
+    dropMenu.hidden = true;
+    (b.dataset.pick === 'dir' ? inDir : inFiles).click();
+  });
+
+  for (const input of [inFiles, inDir]) {
+    input.addEventListener('change', async () => {
+      const entrees = [...input.files].map(f => ({
+        fichier: f, chemin: f.webkitRelativePath || f.name,
+      }));
+      input.value = '';   // permet de redéposer le même dossier ensuite
+      await envoyer(entrees);
+    });
+  }
+
+  for (const ev of ['dragenter', 'dragover']) {
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('actif'); });
+  }
+  for (const ev of ['dragleave', 'drop']) {
+    drop.addEventListener(ev, () => drop.classList.remove('actif'));
+  }
+  drop.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropMenu.hidden = true;
+    const items = [...(e.dataTransfer.items || [])]
+      .map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+
+    let entrees = [];
+    if (items.length) {
+      msg(fileMsg, 'Lecture de l’arborescence…', true);
+      for (const it of items) entrees.push(...await parcourir(it));
+    } else {
+      // Navigateur sans l'API d'entrées : on retombe sur les fichiers plats.
+      entrees = [...(e.dataTransfer.files || [])].map(f => ({ fichier: f, chemin: f.name }));
+    }
+    await envoyer(entrees);
   });
 
   // ── Historique des séances ──────────────────────────────────────
