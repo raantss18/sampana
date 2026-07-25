@@ -35,6 +35,33 @@ def flatten(cfg: dict) -> list[dict]:
     return out
 
 
+def security_headers(frameable: bool = False) -> list[str]:
+    """En-tetes de securite, absents jusqu'ici de toutes les reponses.
+
+    `X-Frame-Options` protege du detournement de clic : sans lui, un site tiers
+    pouvait encadrer le tableau de bord et faire cliquer l'enseignant a son insu
+    — l'interrupteur du mode invite et le bouton de deconnexion s'y pretent.
+
+    `frameable` vaut True pour les services montres dans l'enveloppe «retour
+    aux outils» : leur interdire l'encadrement afficherait un cadre blanc.
+    SAMEORIGIN suffit alors, l'enveloppe etant servie sur la meme origine.
+
+    Pas de HSTS : le tableau de bord est volontairement joignable en HTTP simple
+    sur le reseau local, ou aucun certificat n'est valable pour une IP privee.
+    L'imposer y rendrait le service inaccessible apres une seule visite en HTTPS.
+    """
+    return [
+        "\theader {",
+        f"\t\tX-Frame-Options {'SAMEORIGIN' if frameable else 'DENY'}",
+        "\t\tX-Content-Type-Options nosniff",
+        "\t\tReferrer-Policy same-origin",
+        "\t\t# Les serveurs applicatifs posent parfois le leur : on remplace.",
+        "\t\t-Server",
+        "\t}",
+        "",
+    ]
+
+
 def auth_block(env: dict[str, str], exclude: bool = False) -> list[str]:
     """Bloc forward_auth interrogeant le service d'authentification.
 
@@ -110,8 +137,9 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
         "# de Sampana, ce bloc ecoute sur une adresse routable : c'est son role.",
         f":{env['GUEST_PORT']} {{",
         f"\tbind {env.get('GUEST_BIND', '0.0.0.0')}",
-        "\tencode gzip",
+        "\tencode zstd gzip",
         "",
+    ] + security_headers(frameable=True) + [
         "\t# Portail : accessible SANS session invitee, sinon le code de seance",
         "\t# ne pourrait jamais etre saisi. `handle` n'accepte qu'un seul matcher,",
         "\t# d'ou le matcher nomme.",
@@ -200,7 +228,9 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
             f"# {svc['label']} — invite",
             f":{svc['port']} {{",
             f"\tbind {env.get('GUEST_BIND', '0.0.0.0')}",
+            "\tencode zstd gzip",
             "",
+        ] + security_headers(frameable=True) + [
             "\t# Enveloppe «retour aux outils», servie SUR CE PORT. Elle doit y",
             "\t# etre : LaTeX Lab renvoie X-Frame-Options SAMEORIGIN, et un port",
             "\t# different est une origine differente. Encadre depuis le port du",
@@ -251,8 +281,9 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         "# un 200 vide. On ecoute sur le port, et `bind` restreint a la boucle locale.",
         f":{port} {{",
         f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
-        "\tencode gzip",
+        "\tencode zstd gzip",
         "",
+    ] + security_headers() + [
         "\t# Pages de connexion : accessibles SANS session, sinon on ne pourrait",
         "\t# jamais s'authentifier. Doit venir avant le forward_auth.",
         "\thandle /auth/* {",
@@ -344,6 +375,10 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
             f"# {svc['label']}",
             f":{svc['port']} {{",
             "\tbind 127.0.0.1",
+            # Sans compression, la feuille de style de LaTeX Lab pesait 872 ko
+            # sur le reseau. Les services a port dedie en etaient prives : seuls
+            # les deux sites principaux la declaraient.
+            "\tencode zstd gzip",
         ]
         lines += auth_block(env)
 
