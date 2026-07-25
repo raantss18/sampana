@@ -167,6 +167,19 @@
         <b>Feuille de présence</b>
         <span id="rollCount">—</span>
       </div>
+      <div class="cfg-row" style="margin-bottom:10px">
+        <a class="cfg-toggle" href="/guest-admin/export?kind=csv&amp;scope=current"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Séance en CSV</a>
+        <a class="cfg-toggle" href="/guest-admin/export?kind=csv&amp;scope=history"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Historique en CSV</a>
+        <a class="cfg-toggle" href="/guest-admin/export?kind=zip&amp;scope=all"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Tout télécharger</a>
+        <button class="cfg-toggle" id="printRoll" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9V3h12v6"/><rect x="6" y="14" width="12" height="7"/>
+            <path d="M6 18H4a1 1 0 01-1-1v-6a1 1 0 011-1h16a1 1 0 011 1v6a1 1 0 01-1 1h-2"/>
+          </svg>Imprimer / PDF</button>
+      </div>
       <table id="rollTable"><tbody></tbody></table>
     </div>
 
@@ -417,6 +430,11 @@
           ${r.idle ? `inactif ${dur(r.idleSeconds)}` : '● actif'}<br>
           <span class="path">présent ${dur(r.durationSeconds)}</span>
         </td>
+        <td style="text-align:right">
+          <a class="cfg-toggle" download
+             href="/guest-admin/export?kind=zip&amp;sid=${r.id}"
+             title="Fiche et parcours de cet étudiant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>ZIP</a>
+        </td>
       </tr>`;
     }).join('');
   };
@@ -512,6 +530,33 @@
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">
           ${lignes}</table></details>`;
     }).join('');
+  });
+
+  document.getElementById('printRoll').addEventListener('click', () => {
+    // Fenêtre dédiée : imprimer la page entière emporterait la recherche, les
+    // cartes et les boutons. Le navigateur offre « Enregistrer au format PDF »
+    // dans sa boîte d'impression — pas de générateur PDF à embarquer.
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) { alert('Autorisez les fenêtres surgissantes pour imprimer.'); return; }
+    const lignes = [...rollTb.querySelectorAll('tr')].map(tr => {
+      const c = [...tr.children].slice(0, 3).map(td => td.innerText.replace(/\s+/g, ' ').trim());
+      return `<tr>${c.map(x => `<td>${x}</td>`).join('')}</tr>`;
+    }).join('');
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+      <title>Feuille de présence</title><style>
+      body{font:13px system-ui,sans-serif;padding:28px;color:#111}
+      h1{font-size:17px;margin:0 0 4px} p{color:#555;margin:0 0 18px;font-size:12px}
+      table{width:100%;border-collapse:collapse}
+      td,th{padding:6px 8px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}
+      th{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#555}
+      </style></head><body>
+      <h1>Feuille de présence</h1>
+      <p>Séance du ${new Date().toLocaleString('fr-FR')} — ${rollNb.textContent || '0 connecté'}</p>
+      <table><thead><tr><th>Étudiant</th><th>Outil et parcours</th><th>Présence</th></tr></thead>
+      <tbody>${lignes}</tbody></table></body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
   });
 
   const paint = (st) => {
