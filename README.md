@@ -320,6 +320,27 @@ ouvert.
 La durée se choisit à l'ouverture. Les étudiants sont prévenus **10 puis 5
 minutes** avant la fin, y compris depuis l'intérieur d'un outil.
 
+### LaTeX Lab garde son propre mot de passe
+
+C'est la seule exception au mot de passe unique, et elle est structurelle :
+Overleaf gère ses propres comptes et n'expose aucun moyen de s'en passer. Le
+mot de passe maître protège la *route* — il vous laisse arriver jusqu'à la
+page de connexion — mais il ne peut pas vous connecter à Overleaf.
+
+C'est aussi pourquoi le mode invité y utilise un compte partagé plutôt qu'un
+accès anonyme.
+
+Une session Overleaf dure 5 jours, à condition que `OVERLEAF_SESSION_SECRET`
+soit défini dans `config/variables.env` du toolkit. **Sans lui**, `settings.js`
+retombe sur `CRYPTO_RANDOM`, souvent absent lui aussi : le secret vaut alors
+`undefined` et aucune session ne survit à une recréation du conteneur — il faut
+ressaisir le mot de passe à chaque redémarrage.
+
+```bash
+# À ajouter une fois, dans overleaf-toolkit/config/variables.env
+OVERLEAF_SESSION_SECRET=<valeur longue et unique>
+```
+
 ### Verrouillage du dashboard
 
 Après **15 minutes sans activité**, le mot de passe maître est redemandé.
