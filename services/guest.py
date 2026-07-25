@@ -32,6 +32,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -344,6 +345,131 @@ def set_latex_password(email: str, password: str) -> tuple[bool, str]:
     return True, "mot de passe LaTeX Lab renouvele"
 
 
+# ── dossier partage ────────────────────────────────────────────────
+_share_dir = ""
+MAX_UPLOAD = 200 * 2**20
+
+
+def safe_filename(name: str) -> str:
+    """Nom de fichier accepte, ou chaine vide.
+
+    On ne garde que le nom de base : un `name` valant «../../etc/passwd»
+    ecrirait hors du dossier partage. Les fichiers caches sont refuses, ils
+    n'ont rien a faire dans un depot de cours et masqueraient leur presence.
+    """
+    name = name.strip()
+    # On REFUSE tout nom contenant un separateur plutot que de le tronquer.
+    # `basename` seul suffisait a contenir «../../etc/passwd» dans le dossier,
+    # mais acceptait la requete en silence : mieux vaut la rejeter, un nom
+    # pareil ne vient jamais d'un depot legitime.
+    if not name or "/" in name or "\\" in name or ".." in name:
+        return ""
+    if name.startswith("."):  # fichier cache : masquerait sa presence
+        return ""
+    return name[:120]
+
+
+def list_share() -> list[dict]:
+    if not _share_dir:
+        return []
+    out = []
+    try:
+        for entry in os.scandir(_share_dir):
+            if entry.name.startswith("."):
+                continue
+            st = entry.stat()
+            out.append({
+                "name": entry.name,
+                "size": st.st_size,
+                "modified": st.st_mtime,
+                "dir": entry.is_dir(),
+            })
+    except OSError:
+        return []
+    out.sort(key=lambda f: (not f["dir"], f["name"].lower()))
+    return out
+
+
+# ── gestion des outils ─────────────────────────────────────────────
+# Le tableau de bord peut ajouter, retirer et masquer des services. Les champs
+# sont valides STRICTEMENT : ce formulaire finit dans un Caddyfile, et un
+# `upstream` libre permettrait d'y injecter n'importe quelle directive.
+_services_path = ""
+_apply_cmd = "/usr/local/lib/sampana/apply.sh"
+
+RE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
+RE_UPSTREAM = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$|^localhost:\d{1,5}$")
+
+
+def read_services() -> dict:
+    with open(_services_path) as fh:
+        return json.load(fh)
+
+
+def write_services(cfg: dict) -> None:
+    tmp = f"{_services_path}.tmp"
+    with open(tmp, "w") as fh:
+        json.dump(cfg, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, _services_path)
+
+
+def validate_tool(body: dict, cfg: dict) -> tuple[dict | None, str]:
+    """Construit un service a partir du formulaire, ou explique le refus."""
+    tid = str(body.get("id", "")).strip().lower()
+    if not RE_ID.match(tid):
+        return None, "Identifiant invalide (minuscules, chiffres et tirets)."
+
+    used = {s["id"] for g in cfg.get("groups", []) for s in g["services"]}
+    used |= {s["id"] for s in cfg.get("guest", {}).get("services", [])}
+    if tid in used:
+        return None, f"L'identifiant « {tid} » est déjà pris."
+
+    upstream = str(body.get("upstream", "")).strip()
+    if not RE_UPSTREAM.match(upstream):
+        return None, "Adresse locale attendue, par exemple 127.0.0.1:9000."
+
+    label = str(body.get("label", "")).strip()[:60] or tid
+    svc = {
+        "id": tid,
+        "label": label,
+        "desc": str(body.get("desc", "")).strip()[:160],
+        "icon": "box",
+        "upstream": upstream,
+    }
+
+    if body.get("route") == "port":
+        try:
+            port = int(body.get("port", 0))
+        except (TypeError, ValueError):
+            return None, "Port invalide."
+        if not (1024 <= port <= 65535):
+            return None, "Le port doit être compris entre 1024 et 65535."
+        if port == int(upstream.rsplit(":", 1)[1]):
+            return None, "Le port public doit différer de celui du service."
+        taken = {s.get("port") for g in cfg.get("groups", []) for s in g["services"]}
+        taken |= {s.get("port") for s in cfg.get("guest", {}).get("services", [])}
+        if port in taken:
+            return None, f"Le port {port} est déjà utilisé."
+        svc.update(route="port", port=port, embed=False)
+    else:
+        svc.update(route="path", path=f"/{tid}", trailing_slash=True)
+
+    return svc, ""
+
+
+def run_apply() -> tuple[bool, str]:
+    """Regenere et recharge Caddy via le helper privilegie."""
+    try:
+        r = subprocess.run(["sudo", "-n", _apply_cmd],
+                           capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"application impossible : {e}"
+    if r.returncode != 0:
+        return False, (r.stderr or r.stdout).strip()[:400]
+    return True, (r.stdout or "").strip()
+
+
 def lan_ips() -> list[str]:
     """Adresses par lesquelles les etudiants peuvent joindre la machine.
 
@@ -637,6 +763,29 @@ class Handler(BaseHTTPRequestHandler):
         # Ces routes sont servies par le site ADMIN, derriere le mot de passe
         # maitre (forward_auth). Elles ne sont pas joignables depuis le site
         # invite : celui-ci ne proxifie que /guest/*.
+        if path == "/guest-admin/tools":
+            try:
+                cfg = read_services()
+            except (OSError, ValueError) as e:
+                self._json(500, {"error": str(e)})
+                return
+            self._json(200, {
+                "admin": [
+                    {"id": s["id"], "label": s["label"], "group": g["name"],
+                     "route": s.get("route"), "hidden": bool(s.get("hidden"))}
+                    for g in cfg.get("groups", []) for s in g["services"]
+                ],
+                "guest": [
+                    {"id": s["id"], "label": s["label"], "route": s.get("route")}
+                    for s in cfg.get("guest", {}).get("services", [])
+                ],
+            })
+            return
+
+        if path == "/guest-admin/files":
+            self._json(200, {"files": list_share(), "dir": _share_dir})
+            return
+
         if path == "/guest-admin/sessions":
             st = read_state()
             self._json(200, {"sessions": session_view(st.get("room"))})
@@ -667,6 +816,7 @@ class Handler(BaseHTTPRequestHandler):
                 # son tableau de bord par Tailscale y lirait le nom .ts.net, qui
                 # ne sert pas le portail invite. Seul le serveur connait l'IP
                 # locale de la machine.
+                "defaultTtlMinutes": st.get("defaultTtlMinutes", 240),
                 "lanIp": lan_ip(),
                 # Toutes les adresses joignables : en partage de connexion, la
                 # machine en a souvent deux (hotspot + reseau de l'ecole) et
@@ -818,6 +968,119 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
+        if path in ("/guest-admin/tool-add", "/guest-admin/tool-remove",
+                    "/guest-admin/tool-hide"):
+            body = self._body()
+            try:
+                cfg = read_services()
+            except (OSError, ValueError) as e:
+                self._json(500, {"error": str(e)})
+                return
+
+            # `guest` decide de la liste visee. Les deux sont volontairement
+            # separees : un service du tableau de bord est protege par le mot
+            # de passe maitre, un service invite ne l'est pas. Une case a
+            # cocher qui melangerait les deux serait un piege.
+            for_guest = bool(body.get("guest"))
+
+            if path == "/guest-admin/tool-add":
+                svc, err = validate_tool(body, cfg)
+                if err:
+                    self._json(400, {"error": err})
+                    return
+                if for_guest:
+                    if svc["route"] == "path":
+                        svc["path"] = f"/guest/{svc['id']}"
+                        svc["strip"] = True
+                    cfg.setdefault("guest", {}).setdefault("services", []).append(svc)
+                else:
+                    groups = cfg.setdefault("groups", [])
+                    dest = next((g for g in groups if g["name"] == "Ajouts"), None)
+                    if dest is None:
+                        dest = {"name": "Ajouts", "services": []}
+                        groups.append(dest)
+                    svc["embed"] = svc.get("embed", True)
+                    dest["services"].append(svc)
+
+            elif path == "/guest-admin/tool-remove":
+                tid = str(body.get("id", ""))
+                if for_guest:
+                    lst = cfg.get("guest", {}).get("services", [])
+                    cfg["guest"]["services"] = [s for s in lst if s["id"] != tid]
+                else:
+                    for g in cfg.get("groups", []):
+                        g["services"] = [s for s in g["services"] if s["id"] != tid]
+                    cfg["groups"] = [g for g in cfg["groups"] if g["services"]]
+
+            else:  # tool-hide
+                tid = str(body.get("id", ""))
+                for g in cfg.get("groups", []):
+                    for s in g["services"]:
+                        if s["id"] == tid:
+                            s["hidden"] = bool(body.get("hidden"))
+
+            try:
+                write_services(cfg)
+            except OSError as e:
+                self._json(500, {"error": str(e)})
+                return
+
+            ok, msg = run_apply()
+            self._json(200 if ok else 500, {"ok": ok, "message": msg})
+            return
+
+        if path in ("/guest-admin/upload", "/guest-admin/delete"):
+            # Depot et retrait des fichiers partages. Ces routes ne sont
+            # atteignables que par le site principal, donc derriere le mot de
+            # passe maitre : le portail invite ne proxifie que /guest/*.
+            if not _share_dir:
+                self._json(500, {"error": "dossier partage non configure"})
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = safe_filename((q.get("name") or [""])[0])
+            if not name:
+                self._json(400, {"error": "nom de fichier invalide"})
+                return
+            dest = os.path.join(_share_dir, name)
+
+            if path == "/guest-admin/delete":
+                try:
+                    os.remove(dest)
+                except OSError as e:
+                    self._json(400, {"error": str(e)})
+                    return
+                self._json(200, {"deleted": name})
+                return
+
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length <= 0 or length > MAX_UPLOAD:
+                self._json(413, {"error": f"taille invalide (max {MAX_UPLOAD // 2**20} Mo)"})
+                return
+            try:
+                # Ecriture par blocs : un fichier de 200 Mo ne doit pas etre
+                # charge en memoire d'un seul tenant.
+                with open(dest, "wb") as fh:
+                    left = length
+                    while left > 0:
+                        chunk = self.rfile.read(min(65536, left))
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+                        left -= len(chunk)
+            except OSError as e:
+                self._json(500, {"error": str(e)})
+                return
+            self._json(200, {"saved": name, "size": length})
+            return
+
+        if path == "/guest-admin/defaults":
+            minutes = int(self._body().get("ttlMinutes", 240))
+            st = read_state()
+            st["defaultTtlMinutes"] = max(10, min(minutes, 24 * 60))
+            write_state(st)
+            self._json(200, {"defaultTtlMinutes": st["defaultTtlMinutes"]})
+            return
+
         if path == "/guest-admin/code":
             code = str(self._body().get("code", "")).strip()
             if len(code) < 4:
@@ -906,7 +1169,8 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
 
-    global _state_path, _sessions_path, _history_path, _latex_helper
+    global _state_path, _sessions_path, _history_path, _latex_helper, _share_dir
+    global _services_path
     conf_path, port, host = sys.argv[1], int(sys.argv[2]), sys.argv[3]
     _state_path = sys.argv[4] if len(sys.argv) > 4 else (
         os.path.dirname(conf_path) + "/guest-state.json")
@@ -916,6 +1180,8 @@ def main() -> int:
     _latex_helper = os.path.expanduser("~/.local/share/sampana/set-latex-password.sh")
     if not os.path.exists(_latex_helper):
         _latex_helper = ""
+    _share_dir = os.environ.get("SAMPANA_SHARE_DIR", "")
+    _services_path = os.environ.get("SAMPANA_SERVICES", "")
     load_sessions()
     Handler.funnel_ports = (sys.argv[5].split(",") if len(sys.argv) > 5 else [])
     Handler.guest_port = sys.argv[6] if len(sys.argv) > 6 else "8081"

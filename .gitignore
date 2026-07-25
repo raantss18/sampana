@@ -9,3 +9,6 @@ build/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Notes de travail locales
+TODO.md

@@ -1,0 +1,45 @@
+[Unit]
+Description=Sampana — Open WebUI invité (éphémère)
+After=ollama.service network-online.target
+Wants=ollama.service
+
+[Container]
+Image=ghcr.io/open-webui/open-webui:main
+
+# Instance DISTINCTE de la tienne, et c'est indispensable : ton Open WebUI
+# tourne en WEBUI_AUTH=False. Le partager donnerait a chaque etudiant l'acces
+# en lecture et en ecriture a toutes tes conversations et a ton panneau admin.
+#
+# Donnees utilisateur (base, conversations, televersements) en tmpfs :
+# l'instance repart vierge a chaque redemarrage, c'est le «non persistant».
+Tmpfs=/app/backend/data:size=1g
+
+# Exception : le cache des modeles d'embedding, ~1 Go recopie a chaque
+# demarrage. Le laisser en tmpfs la saturait a 100 % et bloquait les ecritures.
+# Ce sont des poids de modeles, aucune donnee d'etudiant n'y transite : les
+# rendre persistants ne trahit pas la promesse d'ephemerite.
+Volume=sampana-guest-webui-cache:/app/backend/data/cache
+
+Network=host
+Environment=HOST=127.0.0.1
+Environment=PORT=3002
+Environment=OLLAMA_BASE_URL=http://127.0.0.1:11434
+Environment=ENABLE_OLLAMA_API=True
+Environment=ENABLE_PERSISTENT_CONFIG=False
+Environment=WEBUI_AUTH=False
+
+# L'instance partage le namespace reseau de l'hote : les fonctions qui vont
+# chercher une URL pour le compte de l'utilisateur deviendraient un moyen de
+# faire emettre des requetes sortantes a ta machine. On les coupe.
+Environment=ENABLE_WEB_SEARCH=False
+Environment=ENABLE_RAG_WEB_SEARCH=False
+Environment=ENABLE_RAG_WEB_LOADER=False
+
+Environment=WEBUI_NAME=Sampana — assistant invité
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

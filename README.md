@@ -105,6 +105,65 @@ peut n'envoyer que l'un des deux — et **suivre les redirections** : Overleaf
 autorise l'encadrement sur sa page de connexion mais le refuse sur la 302 qui y
 mène. Un service encadré à tort n'affiche qu'un cadre blanc.
 
+## Réglages par défaut
+
+`config/sampana.env` — tout est modifiable, ces valeurs fonctionnent telles quelles.
+
+| Réglage | Défaut | Rôle |
+|---|---|---|
+| `SAMPANA_HOST` | *détecté* | Nom Tailscale de la machine |
+| `CADDY_PORT` | `8088` | Écoute locale du dashboard |
+| `CADDY_BIND` | `0.0.0.0` | Rend le dashboard joignable depuis le LAN, **mot de passe toujours exigé** |
+| `HEALTH_PORT` | `8089` | Sonde de santé |
+| `TTYD_PORT` | `7681` | Terminal web |
+| `WEB_ROOT` | `/srv/sampana` | Fichiers statiques servis par Caddy |
+| `AUTH_ENABLED` | `1` | `0` supprime toute authentification |
+| `AUTH_PORT` | `8090` | Service d'authentification |
+
+Mode invité :
+
+| Réglage | Défaut | Rôle |
+|---|---|---|
+| `GUEST_ENABLED` | `1` | Installe le mode invité |
+| `GUEST_PORT` | `8081` | Portail invité, **seul port lié à une adresse routable** |
+| `GUEST_GATE_PORT` | `8092` | Service du portail (boucle locale) |
+| `GUEST_FUNNEL_PORT` | `10000` | Port publié sur Internet |
+| `GUEST_TTL` | `7200` | Durée d'une séance, en secondes (réglable au dashboard) |
+| `GUEST_SHARE_DIR` | `/srv/sampana-partage` | Dossier partagé, lié depuis `~/sampana-partage` |
+| `GUEST_LATEX_EMAIL` | `invite@sampana.local` | Compte LaTeX Lab partagé |
+
+Autres valeurs, non configurables par fichier :
+
+| | Défaut | Où le changer |
+|---|---|---|
+| Verrouillage par inactivité | **15 min** | Dashboard → Configuration |
+| Session absolue | 30 jours | `ttl` dans `auth.json` |
+| Inactivité d'un étudiant | 3 min | `IDLE_AFTER`, `services/guest.py` |
+| Taille max d'un fichier déposé | 200 Mo | `MAX_UPLOAD`, `services/guest.py` |
+| Purge des projets LaTeX Lab | 03:00 | `sampana-purge-guest.timer` |
+| Mémoire du JupyterLab invité | 12 Gio, 8 cœurs | Quadlet `sampana-guest-jupyter` |
+
+**Il n'y a pas de mot de passe maître par défaut.** `install.sh` le demande au
+premier lancement, ou en génère un et l'affiche si aucun terminal n'est
+disponible. Seule une empreinte scrypt est conservée : un mot de passe perdu
+ne se récupère pas, il se remplace (`rm ~/.config/sampana/auth.json && ./install.sh`).
+
+## Configuration depuis le dashboard
+
+Une section **Configuration** permet de changer le mot de passe maître, le
+délai d'inactivité, la durée de séance par défaut, et **d'ajouter ou retirer
+des outils** sans toucher aux fichiers.
+
+L'ajout écrit dans `config/services.json` puis appelle un helper privilégié qui
+régénère, **valide**, puis recharge Caddy — et restaure la configuration
+précédente si le rechargement échoue. Sans cette validation, une erreur de
+saisie rendrait le dashboard inaccessible, donc irréparable depuis l'interface.
+
+Ce helper est le seul point par lequel l'interface obtient des droits root. Il
+vit hors du dépôt, appartient à `root`, n'accepte aucun argument, et une règle
+sudo ne vise que lui. Il n'accorde rien de plus qu'un shell `ttyd` — que le mot
+de passe maître ouvre déjà.
+
 ## Utilisation
 
 | Raccourci | Effet |
@@ -238,6 +297,16 @@ ouvert.
 
 La durée se choisit à l'ouverture. Les étudiants sont prévenus **10 puis 5
 minutes** avant la fin, y compris depuis l'intérieur d'un outil.
+
+### Verrouillage du dashboard
+
+Après **15 minutes sans activité**, le mot de passe maître est redemandé.
+Rien ne s'arrête pour autant : les séances invitées, les conteneurs et les
+services continuent de tourner — seul l'accès au tableau de bord est refermé.
+
+La fenêtre est glissante et tenue côté serveur. `forward_auth` ne permet pas
+de renvoyer un cookie rafraîchi au navigateur, un registre d'activité fait
+donc le même travail sans toucher au cookie.
 
 ### Feuille de présence
 

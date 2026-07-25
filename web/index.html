@@ -169,10 +169,109 @@
       </div>
       <table id="rollTable"><tbody></tbody></table>
     </div>
+
+    <div class="guest-roll">
+      <div class="roll-head">
+        <b>Fichiers partagés</b>
+        <span id="shareDir"></span>
+      </div>
+      <div class="cfg-row" style="margin-bottom:10px">
+        <input id="fileInput" type="file" multiple style="min-width:220px">
+        <button id="fileSend" type="button">Déposer</button>
+      </div>
+      <p class="cfg-msg" id="fileMsg"></p>
+      <table id="fileTable"><tbody></tbody></table>
+    </div>
+
+    <div class="guest-roll">
+      <div class="roll-head">
+        <b>Historique des séances</b>
+        <button class="cfg-toggle" id="histToggle" type="button">afficher</button>
+      </div>
+      <div id="histBody" hidden></div>
+    </div>
   </section>
 
   <div id="groups"></div>
   <div class="empty" id="empty" hidden>Aucun service ne correspond.</div>
+
+  <section class="cfg" id="cfg" hidden>
+    <button class="cfg-toggle" id="cfgToggle" type="button">Configuration</button>
+    <div class="cfg-body" id="cfgBody" hidden>
+
+      <div class="cfg-block">
+        <h3>Mot de passe maître</h3>
+        <p>Le changer déconnecte toutes les autres sessions.</p>
+        <div class="cfg-row">
+          <input id="pwCur" type="password" placeholder="Mot de passe actuel"
+                 autocomplete="current-password">
+          <input id="pwNew" type="password" placeholder="Nouveau (8 car. min.)"
+                 autocomplete="new-password">
+          <button id="pwSave" type="button">Changer</button>
+        </div>
+        <p class="cfg-msg" id="pwMsg"></p>
+      </div>
+
+      <div class="cfg-block">
+        <h3>Verrouillage par inactivité</h3>
+        <p>Redemande le mot de passe après ce délai sans activité.
+           Les séances invitées et les services continuent de tourner.</p>
+        <div class="cfg-row">
+          <select id="idleSel">
+            <option value="5">5 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 heure</option>
+            <option value="0">Jamais</option>
+          </select>
+          <button id="idleSave" type="button">Enregistrer</button>
+        </div>
+        <p class="cfg-msg" id="idleMsg"></p>
+      </div>
+
+      <div class="cfg-block">
+        <h3>Ajouter un outil</h3>
+        <p>Le service doit déjà tourner sur la machine. Sampana le place
+           derrière le mot de passe maître, ou derrière le code de séance si
+           vous le destinez aux étudiants.</p>
+        <div class="cfg-row">
+          <input id="tNom" placeholder="Nom affiché (ex. Grafana)">
+          <input id="tId" placeholder="identifiant-court">
+          <input id="tUp" placeholder="127.0.0.1:9000">
+        </div>
+        <div class="cfg-row" style="margin-top:10px">
+          <input id="tDesc" placeholder="Description (facultatif)" style="min-width:260px">
+          <select id="tRoute">
+            <option value="path">Sous-chemin (recommandé)</option>
+            <option value="port">Port dédié</option>
+          </select>
+          <input id="tPort" type="number" placeholder="Port public" style="min-width:120px" hidden>
+          <label style="font-size:13px;color:var(--dim);display:flex;gap:6px;align-items:center">
+            <input id="tGuest" type="checkbox"> pour les invités
+          </label>
+          <button id="tAdd" type="button">Ajouter</button>
+        </div>
+        <p class="cfg-msg" id="tMsg"></p>
+        <table id="toolTable" style="width:100%;border-collapse:collapse;font-size:13px"><tbody></tbody></table>
+      </div>
+
+      <div class="cfg-block">
+        <h3>Séance invitée</h3>
+        <p>Durée proposée par défaut à l'ouverture d'une séance.</p>
+        <div class="cfg-row">
+          <select id="gdefSel">
+            <option value="120">2 h</option>
+            <option value="240">4 h</option>
+            <option value="360">6 h</option>
+            <option value="480">8 h</option>
+          </select>
+          <button id="gdefSave" type="button">Enregistrer</button>
+        </div>
+        <p class="cfg-msg" id="gdefMsg"></p>
+      </div>
+
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -227,6 +326,35 @@
   #rollTable .off { color: var(--dim); }
   #rollTable .path { color: var(--dim); font-size: 11.5px; }
   .roll-empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
+
+  .cfg { margin-top: 28px; }
+  .cfg-toggle {
+    background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px;
+    cursor: pointer; padding: 6px 0; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .cfg-toggle:hover { color: var(--txt); }
+  .cfg-body {
+    margin-top: 12px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); padding: 6px 20px 20px;
+  }
+  .cfg-block { padding-top: 18px; }
+  .cfg-block + .cfg-block { border-top: 1px dashed var(--line); margin-top: 4px; }
+  .cfg-block h3 { margin: 0 0 4px; font-size: 14.5px; }
+  .cfg-block > p { margin: 0 0 12px; color: var(--dim); font-size: 12.5px; line-height: 1.6; }
+  .cfg-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .cfg-row input, .cfg-row select {
+    background: var(--bg); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 11px; font: inherit; font-size: 13px; min-width: 170px;
+  }
+  .cfg-row button {
+    background: var(--bg); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 16px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  .cfg-row button:hover { border-color: var(--accent); }
+  .cfg-msg { margin: 9px 0 0; font-size: 12.5px; min-height: 1em; }
+  .cfg-msg.ok  { color: #10b981; }
+  .cfg-msg.err { color: var(--err, #f85149); }
 </style>
 
 <script>
@@ -280,6 +408,99 @@
     }).join('');
   };
 
+  // ── Fichiers partagés ───────────────────────────────────────────
+  // Le dossier existait déjà mais n'était alimentable qu'en copiant des
+  // fichiers à la main sur la machine.
+  const fileTb  = document.querySelector('#fileTable tbody');
+  const fileMsg = document.getElementById('fileMsg');
+
+  const poids = (n) => n >= 2**20 ? `${(n / 2**20).toFixed(1)} Mo`
+                     : n >= 1024  ? `${Math.round(n / 1024)} Ko` : `${n} o`;
+
+  const refreshFiles = async () => {
+    let data;
+    try {
+      data = await (await fetch('/guest-admin/files', { cache: 'no-store' })).json();
+    } catch { return; }
+    document.getElementById('shareDir').textContent = data.dir || '';
+    if (!data.files.length) {
+      fileTb.innerHTML = '<tr><td class="roll-empty">Aucun fichier partagé.</td></tr>';
+      return;
+    }
+    fileTb.innerHTML = data.files.map(f => `<tr>
+      <td>${f.dir ? '📁 ' : ''}${f.name}</td>
+      <td class="path">${f.dir ? '' : poids(f.size)}</td>
+      <td class="state">${f.dir ? '' :
+        `<button class="cfg-toggle" data-del="${encodeURIComponent(f.name)}">retirer</button>`}</td>
+    </tr>`).join('');
+  };
+
+  fileTb.addEventListener('click', async (e) => {
+    const name = e.target.dataset?.del;
+    if (!name) return;
+    if (!confirm(`Retirer « ${decodeURIComponent(name)} » du dossier partagé ?`)) return;
+    await fetch(`/guest-admin/delete?name=${name}`, { method: 'POST' });
+    refreshFiles();
+  });
+
+  document.getElementById('fileSend').addEventListener('click', async () => {
+    const input = document.getElementById('fileInput');
+    if (!input.files.length) { fileMsg.className = 'cfg-msg err';
+                               fileMsg.textContent = 'Choisissez un fichier.'; return; }
+    let ok = 0, erreurs = [];
+    for (const f of input.files) {
+      fileMsg.className = 'cfg-msg';
+      fileMsg.textContent = `Envoi de ${f.name}…`;
+      // Corps brut plutôt que multipart : le portail n'a pas de parseur
+      // multipart en bibliothèque standard, et un envoi direct suffit.
+      const r = await fetch(`/guest-admin/upload?name=${encodeURIComponent(f.name)}`,
+                            { method: 'POST', body: f });
+      if (r.ok) ok++;
+      else {
+        let m = ''; try { m = (await r.json()).error; } catch {}
+        erreurs.push(`${f.name} : ${m || r.status}`);
+      }
+    }
+    input.value = '';
+    fileMsg.className = 'cfg-msg ' + (erreurs.length ? 'err' : 'ok');
+    fileMsg.textContent = erreurs.length
+      ? `${ok} déposé(s), échec : ${erreurs.join(' · ')}`
+      : `${ok} fichier(s) déposé(s).`;
+    refreshFiles();
+  });
+
+  // ── Historique des séances ──────────────────────────────────────
+  document.getElementById('histToggle').addEventListener('click', async (e) => {
+    const box = document.getElementById('histBody');
+    box.hidden = !box.hidden;
+    e.target.textContent = box.hidden ? 'afficher' : 'masquer';
+    if (box.hidden) return;
+
+    let data;
+    try {
+      data = await (await fetch('/guest-admin/history', { cache: 'no-store' })).json();
+    } catch { box.innerHTML = '<p class="roll-empty">Historique illisible.</p>'; return; }
+
+    if (!data.rooms || !data.rooms.length) {
+      box.innerHTML = '<p class="roll-empty">Aucune séance archivée. ' +
+                      'Une séance est archivée quand vous la fermez.</p>';
+      return;
+    }
+    box.innerHTML = data.rooms.map(r => {
+      const quand = new Date(r.closedAt * 1000).toLocaleString('fr-FR');
+      const lignes = r.students.map(s =>
+        `<tr><td>${s.last.toUpperCase()} ${s.first}</td>` +
+        `<td class="path">${Math.round(s.durationSeconds / 60)} min</td>` +
+        `<td class="path">${[...new Set(s.timeline.map(t => t.tool))].join(' · ')}</td></tr>`
+      ).join('');
+      return `<details style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-size:13px">
+          ${quand} — ${r.count} étudiant(s) — code ${r.code || '—'}</summary>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">
+          ${lignes}</table></details>`;
+    }).join('');
+  });
+
   const paint = (st) => {
     const on = !!st.enabled;
     panel.hidden = false;
@@ -290,6 +511,7 @@
     // La durée se choisit à l'ouverture ; la changer en cours de séance
     // n'aurait aucun effet sur les jetons déjà distribués.
     durWrap.style.display = on ? 'none' : '';
+    if (!on && st.defaultTtlMinutes) durSel.value = String(st.defaultTtlMinutes);
 
     roll.hidden = !on;
     clearInterval(rollTimer);
@@ -343,6 +565,7 @@
     st = await (await fetch('/guest-admin/state', { cache: 'no-store' })).json();
   } catch { return; }  // pas de mode invite installe : on n'affiche rien
   paint(st);
+  refreshFiles();
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -378,6 +601,157 @@
       btn.textContent = 'Réessayer';
     }
   });
+})();
+</script>
+
+<script>
+// ── Section Configuration ─────────────────────────────────────────
+// Volontairement limitee aux reglages qui s'appliquent a chaud. Modifier la
+// liste des services depuis ici imposerait de regenerer le Caddyfile et de
+// recharger Caddy, donc d'accorder les droits root a une page web.
+(() => {
+  const cfg = document.getElementById('cfg');
+  const body = document.getElementById('cfgBody');
+
+  const msg = (el, texte, ok) => {
+    el.textContent = texte;
+    el.className = 'cfg-msg ' + (ok ? 'ok' : 'err');
+  };
+
+  document.getElementById('cfgToggle').addEventListener('click', () => {
+    body.hidden = !body.hidden;
+  });
+
+  const post = async (url, payload) => {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    let out = {};
+    try { out = await r.json(); } catch {}
+    return { ok: r.ok, out };
+  };
+
+  // Mot de passe maitre — l'ancien est exige meme si la session est valide :
+  // sinon un poste laisse ouvert suffirait a verrouiller dehors le proprietaire.
+  document.getElementById('pwSave').addEventListener('click', async () => {
+    const el = document.getElementById('pwMsg');
+    const cur = document.getElementById('pwCur').value;
+    const nw  = document.getElementById('pwNew').value;
+    if (nw.length < 8) { msg(el, '8 caractères minimum.', false); return; }
+    msg(el, 'Changement…', true);
+    const { ok, out } = await post('/auth/password', { current: cur, new: nw });
+    if (ok) {
+      document.getElementById('pwCur').value = '';
+      document.getElementById('pwNew').value = '';
+      msg(el, 'Mot de passe changé. Les autres sessions sont déconnectées.', true);
+    } else {
+      msg(el, out.error || 'Échec du changement.', false);
+    }
+  });
+
+  document.getElementById('idleSave').addEventListener('click', async () => {
+    const el = document.getElementById('idleMsg');
+    const v = parseInt(document.getElementById('idleSel').value, 10);
+    const { ok, out } = await post('/auth/config', { idleMinutes: v });
+    msg(el, ok ? (v ? `Verrouillage après ${v} min d'inactivité.`
+                    : 'Verrouillage désactivé.')
+              : (out.error || 'Échec.'), ok);
+  });
+
+  // ── Ajout d'outils ──────────────────────────────────────────────
+  // L'ajout écrit dans services.json puis déclenche un helper privilégié qui
+  // régénère, VALIDE et recharge Caddy. La validation avant installation est
+  // le garde-fou : une configuration cassée depuis cette page rendrait la
+  // page elle-même inaccessible, donc irréparable d'ici.
+  const tMsg   = document.getElementById('tMsg');
+  const tRoute = document.getElementById('tRoute');
+  const tPort  = document.getElementById('tPort');
+  const toolTb = document.querySelector('#toolTable tbody');
+
+  tRoute.addEventListener('change', () => { tPort.hidden = tRoute.value !== 'port'; });
+
+  const refreshTools = async () => {
+    let d;
+    try { d = await (await fetch('/guest-admin/tools', { cache: 'no-store' })).json(); }
+    catch { return; }
+    const ligne = (t, guest) => `<tr>
+      <td style="padding:5px 6px;border-top:1px solid var(--line)">${t.label}</td>
+      <td style="padding:5px 6px;border-top:1px solid var(--line)" class="path">
+        ${guest ? 'invité' : t.group}${t.hidden ? ' · masqué' : ''}</td>
+      <td style="padding:5px 6px;border-top:1px solid var(--line);text-align:right">
+        ${guest ? '' : `<button class="cfg-toggle" data-hide="${t.id}"
+           data-val="${t.hidden ? 0 : 1}">${t.hidden ? 'afficher' : 'masquer'}</button> `}
+        <button class="cfg-toggle" data-rm="${t.id}" data-guest="${guest ? 1 : 0}">retirer</button>
+      </td></tr>`;
+    toolTb.innerHTML = d.admin.map(t => ligne(t, false)).join('') +
+                       d.guest.map(t => ligne(t, true)).join('');
+  };
+
+  const applique = async (url, payload, quoi) => {
+    tMsg.className = 'cfg-msg';
+    tMsg.textContent = 'Application…';
+    const { ok, out } = await post(url, payload);
+    msg(tMsg, ok ? `${quoi} — Caddy rechargé.` : (out.error || out.message || 'Échec.'), ok);
+    refreshTools();
+  };
+
+  toolTb.addEventListener('click', (e) => {
+    const rm = e.target.dataset?.rm, hide = e.target.dataset?.hide;
+    if (rm) {
+      if (!confirm(`Retirer « ${rm} » ? Le service continuera de tourner, il ne sera plus proxifié.`)) return;
+      applique('/guest-admin/tool-remove',
+               { id: rm, guest: e.target.dataset.guest === '1' }, 'Outil retiré');
+    } else if (hide) {
+      applique('/guest-admin/tool-hide',
+               { id: hide, hidden: e.target.dataset.val === '1' }, 'Visibilité modifiée');
+    }
+  });
+
+  document.getElementById('tAdd').addEventListener('click', async () => {
+    const body = {
+      id: document.getElementById('tId').value.trim(),
+      label: document.getElementById('tNom').value.trim(),
+      desc: document.getElementById('tDesc').value.trim(),
+      upstream: document.getElementById('tUp').value.trim(),
+      route: tRoute.value,
+      port: parseInt(tPort.value, 10) || 0,
+      guest: document.getElementById('tGuest').checked,
+    };
+    if (!body.id || !body.upstream) {
+      msg(tMsg, 'Identifiant et adresse locale sont requis.', false); return;
+    }
+    await applique('/guest-admin/tool-add', body, `« ${body.label || body.id} » ajouté`);
+    for (const i of ['tId', 'tNom', 'tDesc', 'tUp']) document.getElementById(i).value = '';
+  });
+
+  document.getElementById('gdefSave').addEventListener('click', async () => {
+    const el = document.getElementById('gdefMsg');
+    const v = parseInt(document.getElementById('gdefSel').value, 10);
+    const { ok, out } = await post('/guest-admin/defaults', { ttlMinutes: v });
+    msg(el, ok ? 'Durée par défaut enregistrée.' : (out.error || 'Échec.'), ok);
+  });
+
+  // La section ne s'affiche que si le service d'authentification repond : une
+  // installation avec AUTH_ENABLED=0 n'a rien a y configurer.
+  (async () => {
+    let conf;
+    try {
+      const r = await fetch('/auth/config', { cache: 'no-store' });
+      if (!r.ok) return;
+      conf = await r.json();
+    } catch { return; }
+    cfg.hidden = false;
+    document.getElementById('idleSel').value = String(conf.idleMinutes);
+    refreshTools();
+    try {
+      const st = await (await fetch('/guest-admin/state', { cache: 'no-store' })).json();
+      if (st.defaultTtlMinutes) {
+        document.getElementById('gdefSel').value = String(st.defaultTtlMinutes);
+      }
+    } catch {}
+  })();
 })();
 </script>
 
