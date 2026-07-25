@@ -42,10 +42,18 @@ SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 # exponentiel PLAFONNE et un verrou temporaire. Le plafond est deliberé : un
 # verrouillage dur et illimite offrirait a un tiers un moyen simple de te
 # fermer la porte en saturant le compteur.
+# On ne verrouille JAMAIS sur un mot de passe correct. La tentation etait de
+# repondre 429 avant meme de verifier, mais derriere Funnel toutes les requetes
+# publiques arrivent de 127.0.0.1 et partagent donc un unique compteur : un tiers
+# n'aurait eu qu'a echouer en boucle pour te fermer la porte a toi aussi.
+# Le ralentissement est donc la seule sanction, et il precede la verification.
 FAIL_WINDOW = 900  # un echec est oublie apres 15 min
 FAIL_MAX_DELAY = 20.0  # backoff plafonne (secondes)
-FAIL_LOCK_AT = 12  # au-dela, 429 pour cette IP
-GLOBAL_LOCK_AT = 80  # garde-fou si les IP sont indistinctes (cas Funnel)
+
+# scrypt coute ~16 Mo et ~100 ms. Sans borne, mille requetes paralleles
+# suffiraient a saturer le CPU et la RAM de la machine — l'anti-brute-force
+# deviendrait lui-meme le vecteur de deni de service. On seriealise.
+SCRYPT_SLOTS = threading.Semaphore(4)
 
 _fails: dict[str, list[float]] = defaultdict(list)
 _fail_lock = threading.Lock()
@@ -257,26 +265,19 @@ class Handler(BaseHTTPRequestHandler):
         nxt = self._safe_next((form.get("next") or [""])[0])
         ip = self._client_ip()
 
-        # Verrou AVANT de verifier : inutile de payer un scrypt pour une IP deja
-        # bloquee, et cela empeche d'en faire un levier de saturation CPU.
-        mine, total = fail_counts(ip)
-        if mine >= FAIL_LOCK_AT or total >= GLOBAL_LOCK_AT:
-            page = LOGIN_PAGE.format(
-                next=html.escape(nxt, quote=True),
-                error='<div class="err">Trop de tentatives. Réessayez dans quelques minutes.</div>',
-            )
-            self._send(429, page.encode(),
-                       {"Content-Type": "text/html; charset=utf-8", "Retry-After": "300"})
-            return
+        # Le prix des echecs precedents se paie AVANT la verification : une
+        # tentative automatisee est donc freinee des la deuxieme. Une connexion
+        # legitime ne subit ce delai qu'une fois, puis repart de zero.
+        mine, _ = fail_counts(ip)
+        if mine:
+            time.sleep(min(2.0 ** (mine - 1), FAIL_MAX_DELAY))
 
         salt = base64.b64decode(self.conf["salt"])
         expected = base64.b64decode(self.conf["hash"])
-        if not hmac.compare_digest(hash_password(password, salt), expected):
-            mine, _ = fail_counts(ip, record=True)
-            # Backoff exponentiel plafonne. Le sleep est ici volontairement
-            # APRES l'enregistrement : deux essais concurrents voient donc bien
-            # deux echecs, la ou un simple sleep partage n'en comptait aucun.
-            time.sleep(min(2.0 ** (mine - 1), FAIL_MAX_DELAY))
+        with SCRYPT_SLOTS:
+            candidate = hash_password(password, salt)
+        if not hmac.compare_digest(candidate, expected):
+            fail_counts(ip, record=True)
             page = LOGIN_PAGE.format(
                 next=html.escape(nxt, quote=True),
                 error='<div class="err">Mot de passe incorrect.</div>',
