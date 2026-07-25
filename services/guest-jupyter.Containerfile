@@ -44,6 +44,7 @@ RUN pip install --no-cache-dir \
 RUN pip uninstall -y \
       jupyter-collaboration jupyter-collaboration-ui \
       jupyter_server_documents jupyter_server_fileid jupyter-server-ydoc \
+      jupyter-docprovider \
       >/dev/null 2>&1 || true
 
 # Garde-fou : si un paquet a survecu, on desactive au moins son extension.

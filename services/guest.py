@@ -554,6 +554,31 @@ def guest_workspace_tar() -> bytes:
         return b""
 
 
+def purge_workspace() -> tuple[bool, str]:
+    """Vide l'espace de travail du JupyterLab invite.
+
+    L'espace est un tmpfs : il ne survit pas a un redemarrage du conteneur —
+    mais la bascule du mode invite ne le redemarre pas. Les fichiers d'une
+    seance se retrouvaient donc dans la suivante, ce qui contredit le «rien
+    n'est conserve» annonce aux etudiants.
+
+    Le vidage a lieu a l'OUVERTURE et non a la fermeture : l'enseignant doit
+    pouvoir exporter le travail apres la seance, l'archive complete contenant
+    justement cet espace.
+    """
+    try:
+        r = subprocess.run(
+            ["podman", "exec", "systemd-sampana-guest-jupyter",
+             "sh", "-c",
+             # `find … -delete` plutot que `rm -rf work` : le point de montage
+             # lui-meme doit rester, sinon le tmpfs disparait du conteneur.
+             "find /home/jovyan/work -mindepth 1 -delete"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"vidage impossible : {e}"
+    return r.returncode == 0, (r.stderr or "espace de travail vide").strip()[:200]
+
+
 def purge_latex(email: str) -> tuple[bool, str]:
     """Efface les projets du compte LaTeX Lab partage.
 
@@ -694,44 +719,37 @@ def check_token(key: bytes, token: str) -> str | None:
 
 
 STYLE = """
-:root{--accent:#38bdf8;--guest:#a78bfa;--bg:#0d1117;--surface:#161b22;
---line:#2a3441;--txt:#e6edf3;--dim:#8b98a9;--err:#f85149}
-@media(prefers-color-scheme:light){:root{--bg:#f6f8fa;--surface:#fff;
---line:#d8dee4;--txt:#1f2328;--dim:#5b6673;--err:#cf222e}}
+:root{--guest:#7c5cff;--guest-doux:#efeaff;--bg:#fbfbfd;--surface:#fff;
+--line:#e6e6ef;--txt:#16161d;--dim:#6b6b7b;--err:#dc2626;
+--ombre:0 1px 2px rgba(20,20,40,.05),0 10px 30px rgba(20,20,40,.08)}
+@media(prefers-color-scheme:dark){:root{--guest:#9b84ff;--guest-doux:#241d47;
+--bg:#0e0e13;--surface:#16161d;--line:#26262f;--txt:#ececf2;--dim:#9a9aab;
+--ombre:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35)}}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);
-color:var(--txt);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;padding:20px}
-.wrap{width:100%;max-width:620px}
-.brand{display:flex;align-items:center;gap:11px;margin-bottom:6px;justify-content:center}
-.brand b{font-size:22px;letter-spacing:-.3px}
-p.sub{color:var(--dim);font-size:13.5px;margin:0 0 26px;text-align:center}
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:560px){.cards{grid-template-columns:1fr}}
-a.card{display:block;text-decoration:none;color:inherit;background:var(--surface);
-border:1px solid var(--line);border-radius:14px;padding:22px;transition:.15s}
-a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
-a.card.guest:hover{border-color:var(--guest)}
-.card h2{margin:0 0 6px;font-size:16.5px}
-.card p{margin:0;color:var(--dim);font-size:13px}
-.tag{display:inline-block;font-size:11px;font-weight:650;padding:2px 8px;border-radius:99px;
-margin-bottom:10px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
-.tag.g{background:color-mix(in srgb,var(--guest) 18%,transparent);color:var(--guest)}
-form{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:32px}
-label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
-input{width:100%;padding:10px 12px;background:var(--bg);color:var(--txt);
-border:1px solid var(--line);border-radius:8px;font:inherit}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;
+background:var(--bg);color:var(--txt);padding:22px;
+font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+padding:max(22px,env(safe-area-inset-top)) 22px max(22px,env(safe-area-inset-bottom))}
+.wrap{width:100%;max-width:400px}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:7px;justify-content:center}
+.brand b{font-size:21px;letter-spacing:-.3px}
+p.sub{color:var(--dim);font-size:13.5px;margin:0 0 24px;text-align:center}
+form{background:var(--surface);border:1px solid var(--line);border-radius:18px;
+padding:26px;box-shadow:var(--ombre)}
+label{display:block;font-size:12.5px;font-weight:650;margin-bottom:6px;color:var(--dim)}
+input{width:100%;padding:13px 14px;background:var(--bg);color:var(--txt);
+border:1px solid var(--line);border-radius:11px;font:inherit;font-size:16px}
 input:focus{outline:none;border-color:var(--guest);
-box-shadow:0 0 0 3px color-mix(in srgb,var(--guest) 22%,transparent)}
-button{width:100%;margin-top:16px;padding:10px;background:var(--guest);color:#1a0b3d;
-border:0;border-radius:8px;font:inherit;font-weight:650;cursor:pointer}
-button:hover{filter:brightness(1.07)}
-.err{color:var(--err);font-size:13px;margin-top:14px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:460px){.row{grid-template-columns:1fr}}
-.notice{margin:18px 0 0;padding-top:14px;border-top:1px dashed var(--line);
-color:var(--dim);font-size:12px;line-height:1.6}
-.back{display:block;text-align:center;margin-top:18px;color:var(--dim);font-size:13px}
-.note{margin-top:22px;color:var(--dim);font-size:12.5px;text-align:center;line-height:1.7}
+box-shadow:0 0 0 3px color-mix(in srgb,var(--guest) 20%,transparent)}
+button{width:100%;margin-top:18px;padding:14px;background:var(--guest);color:#fff;
+border:0;border-radius:11px;font:inherit;font-size:15px;font-weight:650;cursor:pointer}
+button:active{transform:scale(.99)}
+.err{color:var(--err);font-size:13px;margin-top:14px;text-align:center}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+@media(max-width:420px){.row{grid-template-columns:1fr}}
+.notice{margin:20px 0 0;padding-top:15px;border-top:1px solid var(--line);
+color:var(--dim);font-size:11.5px;line-height:1.6}
 """
 
 LOGO = """<svg width="28" height="28" viewBox="0 0 32 32" fill="none" style="color:var(--accent)">
@@ -1175,6 +1193,7 @@ class Handler(BaseHTTPRequestHandler):
                 # deux seances du meme jour se partageaient les projets. Les
                 # etudiants du matin retrouvaient ceux de l'apres-midi.
                 purge_latex(self.latex_email)
+                purge_workspace()
                 ok_pw, msg_pw = set_latex_password(self.latex_email, password)
                 st.update(room=room, code=code, ttlMinutes=ttl // 60,
                           latexPassword=password if ok_pw else st.get("latexPassword", ""),

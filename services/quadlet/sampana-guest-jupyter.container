@@ -74,7 +74,8 @@ Environment=OLLAMA_BASE_URL=http://127.0.0.1:11434
 # pas : le frontend restait et continuait de reclamer un service absent.
 # L'image la retire deja ; ceci couvre le cas d'une image plus ancienne.
 Exec=bash -c "pip uninstall -y jupyter-collaboration jupyter-collaboration-ui \
-    jupyter_server_documents jupyter_server_fileid jupyter-server-ydoc >/dev/null 2>&1; \
+    jupyter_server_documents jupyter_server_fileid jupyter-server-ydoc \
+    jupyter-docprovider >/dev/null 2>&1; \
   python3 /opt/ollama-bridge.py & exec start-notebook.py \
   --ServerApp.sock=/sock/jupyter.sock \
   --ServerApp.sock_mode=0660 \

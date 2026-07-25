@@ -2,220 +2,274 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Sampana — Mode invité</title>
-<link rel="stylesheet" href="/sampana.css" />
 <link rel="icon" href="/logo.svg" type="image/svg+xml" />
 <style>
-  :root { --guest: #a78bfa; }
-  body { display: flex; flex-direction: column; min-height: 100vh; }
+  /* Palette unique, bascule automatique clair/sombre. Les deux thèmes
+     partagent les mêmes noms : aucune règle en double à maintenir.
+     Pas de feuille externe : une requête de moins au premier chargement,
+     ce qui compte sur une connexion de téléphone. */
+  :root {
+    --guest: #7c5cff; --guest-doux: #efeaff;
+    --bg: #fbfbfd; --surface: #fff; --line: #e6e6ef;
+    --txt: #16161d; --dim: #6b6b7b; --hover: #f3f3f8;
+    --warn: #b45309; --err: #dc2626;
+    --ombre: 0 1px 2px rgba(20,20,40,.05), 0 8px 24px rgba(20,20,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --guest: #9b84ff; --guest-doux: #241d47;
+      --bg: #0e0e13; --surface: #16161d; --line: #26262f;
+      --txt: #ececf2; --dim: #9a9aab; --hover: #1e1e27;
+      --ombre: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100dvh; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--txt);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* Encoches et barres gestuelles des téléphones récents. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 
   header {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 14px 22px; border-bottom: 1px solid var(--line);
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; background: var(--surface);
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10;
   }
-  header b { font-size: 17px; letter-spacing: -.3px; }
-  .badge {
-    font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 99px;
-    background: color-mix(in srgb, var(--guest) 18%, transparent); color: var(--guest);
+  .marque { display: flex; align-items: center; gap: 9px; }
+  .marque b { font-size: 16px; letter-spacing: -.2px; }
+  .puce {
+    font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    padding: 3px 9px; border-radius: 99px;
+    background: var(--guest-doux); color: var(--guest);
   }
   .spacer { flex: 1 1 auto; }
-  a.quit { color: var(--dim); font-size: 13px; text-decoration: none; }
-  a.quit:hover { color: var(--txt); }
-
-  main { flex: 1 1 auto; padding: 26px 22px; max-width: 980px; margin: 0 auto; width: 100%; }
-
-  .warn {
-    display: flex; gap: 12px; align-items: flex-start;
-    border: 1px solid color-mix(in srgb, var(--guest) 40%, var(--line));
-    background: color-mix(in srgb, var(--guest) 8%, transparent);
-    border-radius: 12px; padding: 14px 16px; margin-bottom: 26px;
+  #horloge { font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  a.quitter {
+    color: var(--dim); font-size: 13px; text-decoration: none;
+    padding: 8px 10px; border-radius: 8px;
   }
-  .warn p { margin: 0; font-size: 13.5px; line-height: 1.65; }
-  .warn b { color: var(--guest); }
+  a.quitter:hover { color: var(--txt); background: var(--hover); }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-  a.card {
-    display: block; text-decoration: none; color: inherit;
+  .alerte {
+    padding: 13px 18px; font-size: 14px; font-weight: 600; text-align: center;
+    background: var(--warn); color: #fff;
+  }
+  .alerte.urgent { background: var(--err); }
+
+  main { flex: 1 1 auto; width: 100%; max-width: 1000px; margin: 0 auto; padding: 22px 18px 40px; }
+
+  .note {
+    padding: 15px 17px; margin-bottom: 22px; border-radius: 14px;
+    background: var(--guest-doux); font-size: 13.5px; line-height: 1.6;
+  }
+  .note b { color: var(--guest); }
+
+  h2 {
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--dim); margin: 0 0 12px;
+  }
+
+  .grille { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+
+  a.outil {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 16px; text-decoration: none; color: inherit;
     background: var(--surface); border: 1px solid var(--line);
-    border-radius: 14px; padding: 20px; transition: .15s;
+    border-radius: 15px; box-shadow: var(--ombre);
+    transition: transform .13s ease, border-color .13s ease;
+    min-height: 76px;   /* cible confortable au doigt */
   }
-  a.card:hover { border-color: var(--guest); transform: translateY(-2px); }
-  .card h2 { margin: 0 0 6px; font-size: 16px; }
-  .card p { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.6; }
-  .creds {
-    margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
-    font-size: 12.5px; color: var(--dim);
+  a.outil:active { transform: scale(.985); }
+  @media (hover: hover) {
+    a.outil:hover { border-color: var(--guest); transform: translateY(-2px); }
   }
-  .creds code { color: var(--txt); font-size: 12.5px; }
+  a.outil:focus-visible { outline: 2px solid var(--guest); outline-offset: 2px; }
 
-  footer { padding: 18px 22px; color: var(--dim); font-size: 12.5px; text-align: center; }
-
-  .alert {
-    padding: 13px 22px; font-size: 14px; font-weight: 600; text-align: center;
-    background: #b45309; color: #fff;
+  .ico {
+    width: 44px; height: 44px; flex: 0 0 auto; border-radius: 13px;
+    display: grid; place-items: center; font-size: 20px;
+    background: var(--guest-doux);
   }
-  .alert.urgent { background: #b91c1c; }
+  .txt { min-width: 0; flex: 1 1 auto; }
+  .txt b { display: block; font-size: 15px; font-weight: 620; }
+  .txt span {
+    font-size: 12.5px; color: var(--dim); margin-top: 2px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ident {
+    width: 100%; margin-top: 4px; padding-top: 9px;
+    border-top: 1px dashed var(--line); font-size: 12px; color: var(--dim);
+  }
+  .ident code {
+    background: var(--hover); padding: 1px 6px; border-radius: 5px;
+    font: 12px ui-monospace, Menlo, monospace; color: var(--txt);
+  }
+
+  footer { padding: 20px 18px 28px; color: var(--dim); font-size: 12.5px; text-align: center; }
+
+  /* Écran étroit : une colonne, marges réduites. */
+  @media (max-width: 560px) {
+    main { padding: 16px 14px 32px; }
+    .grille { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    a.outil { transition: none; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <b>Sampana</b>
-  <span class="badge">Mode invité</span>
-  <span class="badge" id="clock" hidden></span>
+  <span class="marque">
+    <svg width="24" height="24" viewBox="0 0 32 32" fill="none" style="color:var(--guest)" aria-hidden="true">
+      <path d="M16 30V17" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M16 17L7 8M16 17V6M16 17l9-9" stroke="currentColor" stroke-width="2.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="7" cy="7" r="3" fill="currentColor"/>
+      <circle cx="16" cy="5" r="3" fill="currentColor"/>
+      <circle cx="25" cy="7" r="3" fill="currentColor"/>
+    </svg>
+    <b>Sampana</b>
+  </span>
+  <span class="puce">Invité</span>
   <span class="spacer"></span>
-  <a class="quit" href="/guest/logout">Quitter la session</a>
+  <span id="horloge"></span>
+  <a class="quitter" href="/guest/logout">Quitter</a>
 </header>
 
-<div class="alert" id="alert" hidden></div>
+<div class="alerte" id="alerte" hidden></div>
 
 <main>
-  <div class="warn">
-    <div>
-      <p><b>Rien n'est conservé.</b> Cet espace est partagé entre tous les
-      participants et remis à zéro régulièrement. <b>Téléchargez votre travail
-      avant de fermer la page</b> — sinon il sera perdu.</p>
-      <p id="ttl" style="margin-top:6px"></p>
-    </div>
+  <div class="note">
+    <b>Rien n'est conservé.</b> Cet espace est partagé et remis à zéro
+    régulièrement. Téléchargez votre travail avant de fermer la page.<span id="duree"></span>
   </div>
 
-  <div class="grid" id="grid"></div>
+  <h2>Vos outils</h2>
+  <div class="grille" id="grille"></div>
 </main>
 
-<footer>Sampana — session invitée, sans compte et sans sauvegarde.</footer>
+<footer>Session invitée — sans compte et sans sauvegarde.</footer>
 
 <script>
-// ── Compte a rebours et preavis ───────────────────────────────────
+// ── Compte à rebours et préavis ───────────────────────────────────
 // Les outils s'ouvrent dans d'autres onglets : un bandeau seul passerait
-// inapercu. On change donc AUSSI le titre du document, visible depuis la
-// barre d'onglets, et on emet une notification systeme si elle est permise.
+// inaperçu. On change donc aussi le titre du document, visible depuis la
+// barre d'onglets, et on émet une notification si elle est permise.
 (() => {
-  const alertBox = document.getElementById('alert');
-  const clock    = document.getElementById('clock');
-  const TITLE    = document.title;
-  const seuils   = [10, 5];          // minutes
-  const annonces = new Set();
+  const alerte  = document.getElementById('alerte');
+  const horloge = document.getElementById('horloge');
+  const TITRE   = document.title;
+  const seuils  = [10, 5];
+  const vus     = new Set();
 
   const fmt = (s) => {
     const m = Math.floor(s / 60);
     return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`;
   };
 
-  const notifier = (texte) => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    try { new Notification('Sampana — mode invité', { body: texte }); } catch {}
-  };
-
   const tick = async () => {
-    let data;
-    try {
-      data = await (await fetch('/guest/remaining', { cache: 'no-store' })).json();
-    } catch { return; }
+    let d;
+    try { d = await (await fetch('/guest/remaining', { cache: 'no-store' })).json(); }
+    catch { return; }
 
-    const s = data.secondsLeft;
-    if (!s) {                       // session close ou expiree
-      document.title = 'Session terminée — Sampana';
-      alertBox.hidden = false;
-      alertBox.className = 'alert urgent';
-      alertBox.textContent = 'Session terminée. Rechargez la page pour vous reconnecter.';
-      clock.hidden = true;
-      return;
-    }
-
-    clock.hidden = false;
-    clock.textContent = `${fmt(s)} restantes`;
-
-    // Identifiants du compte partage, renouveles a chaque seance.
-    if (data.latexEmail) {
-      for (const el of document.querySelectorAll('[data-creds]')) {
-        el.innerHTML = `Compte partagé — identifiant : <code>${data.latexEmail}</code><br>` +
-                       `mot de passe : <code>${data.latexPassword || '—'}</code>`;
+    // Identifiants du compte partagé : ils changent à chaque séance, donc lus
+    // en direct plutôt que figés dans le manifeste.
+    if (d.latexEmail) {
+      for (const el of document.querySelectorAll('[data-ident]')) {
+        el.innerHTML = `Compte partagé — <code>${d.latexEmail}</code> · ` +
+                       `mot de passe <code>${d.latexPassword || '—'}</code>`;
       }
     }
+
+    const s = d.secondsLeft;
+    if (!s) {
+      document.title = 'Session terminée — Sampana';
+      horloge.textContent = '';
+      alerte.hidden = false;
+      alerte.className = 'alerte urgent';
+      alerte.textContent = 'Session terminée. Rechargez la page pour vous reconnecter.';
+      return;
+    }
+    horloge.textContent = `${fmt(s)} restantes`;
 
     const minutes = Math.ceil(s / 60);
     for (const seuil of seuils) {
-      // <= seuil et > seuil-1 : l'annonce ne part qu'une fois par palier.
-      if (minutes <= seuil && !annonces.has(seuil)) {
-        annonces.add(seuil);
+      if (minutes <= seuil && !vus.has(seuil)) {
+        vus.add(seuil);
         const texte = `Il vous reste ${seuil} minutes. Téléchargez votre travail : rien n'est conservé.`;
-        alertBox.hidden = false;
-        alertBox.className = seuil <= 5 ? 'alert urgent' : 'alert';
-        alertBox.textContent = texte;
+        alerte.hidden = false;
+        alerte.className = seuil <= 5 ? 'alerte urgent' : 'alerte';
+        alerte.textContent = texte;
         document.title = `⚠ ${seuil} min — Sampana`;
-        notifier(texte);
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try { new Notification('Sampana — mode invité', { body: texte }); } catch {}
+        }
       }
     }
-    if (minutes > seuils[0]) document.title = TITLE;
+    if (minutes > seuils[0]) document.title = TITRE;
   };
 
-  // La permission ne peut etre demandee que sur un geste de l'utilisateur ;
-  // l'arrivee sur cette page en est un dans la plupart des navigateurs.
   if ('Notification' in window && Notification.permission === 'default') {
     document.addEventListener('click', () => Notification.requestPermission(), { once: true });
   }
-
   tick();
   setInterval(tick, 30000);
 })();
 
-// Le manifeste est genere par bin/render.py depuis config/services.json : les
-// cartes suivent donc la configuration reelle, sans duplication a maintenir.
-// URL relative : la page est servie sous /guest/, que le proxy retire avant
-// d'atteindre le disque. Un chemin absolu casserait selon le point d'entree.
+// ── Cartes ────────────────────────────────────────────────────────
+// Le manifeste vient de bin/render.py : les cartes suivent la configuration
+// réelle, sans liste à maintenir en double.
+const ICONES = {
+  notebook: '📓', sigma: '∑', document: '📄', chat: '💬',
+  folder: '📁', box: '🎨', api: '🔌', terminal: '▸', sync: '🔄',
+};
+
 fetch('guest.web.json')
   .then(r => r.json())
   .then(cfg => {
-    const grid = document.getElementById('grid');
-
+    const grille = document.getElementById('grille');
     const mins = Math.round((cfg.ttl || 7200) / 60);
-    document.getElementById('ttl').textContent =
-      `La session expire automatiquement au bout de ${mins} minutes.`;
+    document.getElementById('duree').textContent =
+      ` La session expire au bout de ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')}.`;
 
-    for (const s of cfg.services) {
-      const a = document.createElement('a');
-      a.className = 'card';
+    // Le port diffère selon le chemin d'accès : Tailscale publie 8443 tandis
+    // que Caddy écoute localement sur 8444. Ils DOIVENT différer, sinon
+    // tailscaled et Caddy se disputent le port et Caddy refuse de démarrer.
+    const viaFunnel = location.protocol === 'https:' && location.hostname.endsWith('.ts.net');
+    const retour = `${location.origin}/guest/`;
+    const q = (u, l) => `u=${encodeURIComponent(u)}&l=${encodeURIComponent(l)}` +
+                        `&b=${encodeURIComponent(retour)}`;
 
-      // Un service « port » vit sur un autre port que cette page. On reconstruit
-      // donc l'URL a partir du nom d'hote courant, qui differe selon l'acces :
-      // adresse IP en salle, nom .ts.net par le Funnel.
-      // Chaque outil s'ouvre dans une enveloppe qui lui ajoute une barre
-      // «← Outils» : aucun d'eux n'a de bouton retour, et un etudiant entre
-      // dans JupyterLab ou LaTeX Lab s'y retrouvait prisonnier.
-      //
-      // L'enveloppe est servie sur le port de l'outil, jamais sur celui-ci :
-      // LaTeX Lab refuse d'etre encadre depuis une autre origine.
-      const retour = `${location.origin}/guest/`;
-      const q = (u, l) => `u=${encodeURIComponent(u)}&l=${encodeURIComponent(l)}` +
-                          `&b=${encodeURIComponent(retour)}`;
-
-      // Le port diffère selon le chemin d'accès : Tailscale publie 8443 tandis
-      // que Caddy écoute localement sur 8444. Les deux DOIVENT différer, sinon
-      // tailscaled tient 100.x:8443 et Caddy ne peut plus lier 0.0.0.0:8443 —
-      // il refuserait alors de démarrer, emportant tout le reste.
-      const viaFunnel = location.protocol === 'https:' && location.hostname.endsWith('.ts.net');
+    grille.innerHTML = cfg.services.map(s => {
       const port = viaFunnel ? (s.funnelPort || s.port) : s.port;
-
-      a.href = s.direct ? s.path
+      // Une page « directe » porte déjà son propre bandeau de retour :
+      // l'enveloppe ferait doublon.
+      const href = s.direct ? s.path
         : s.route === 'port'
         ? `${location.protocol}//${location.hostname}:${port}/sampana/tool.html?` +
           q(s.openPath || '/', s.label)
         : `/guest/tool.html?` + q(`${s.path}/`, s.label);
 
-      // Les identifiants LaTeX Lab changent a chaque seance : ils sont
-      // recuperes en direct, pas lus dans le manifeste statique qui afficherait
-      // ceux de la seance precedente. La carte est remplie par la suite.
-      let creds = '';
-      if (s.sharedAccount) creds = `<div class="creds" data-creds>Compte partagé — chargement…</div>`;
+      const ident = s.sharedAccount
+        ? `<span class="ident" data-ident>Compte partagé — chargement…</span>` : '';
 
-      a.innerHTML = `<h2>${s.label}</h2><p>${s.desc}</p>${creds}`;
-      grid.appendChild(a);
-    }
+      return `<a class="outil" href="${href}" target="_blank" rel="noopener">
+        <span class="ico">${ICONES[s.icon] || '📦'}</span>
+        <span class="txt"><b>${s.label}</b><span>${s.desc}</span></span>
+        ${ident}
+      </a>`;
+    }).join('');
   })
   .catch(() => {
-    document.getElementById('grid').innerHTML =
+    document.getElementById('grille').innerHTML =
       '<p style="color:var(--dim)">Impossible de charger la liste des outils.</p>';
   });
 </script>
