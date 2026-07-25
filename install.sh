@@ -370,6 +370,16 @@ EOF
             podman build -f services/guest-jupyter.Containerfile \
                 -t sampana/guest-jupyter:latest . >/dev/null
         fi
+        # Excalidraw est modifie a la construction : adresse de collaboration
+        # rendue relative, et polices rapatriees dans l'image. Sans cette
+        # etape, une installation neuve tirerait l'image officielle, dont les
+        # polices viennent d'un CDN — le tableau blanc s'afficherait alors avec
+        # des caracteres de repli des que la salle est sans Internet.
+        if ! podman image exists localhost/sampana/excalidraw:latest; then
+            c_info "Construction de l'image Excalidraw (polices hors ligne)…"
+            podman build -f services/excalidraw.Containerfile \
+                -t sampana/excalidraw:latest . >/dev/null
+        fi
         c_ok "Conteneurs invites declares"
     else
         c_warn "podman absent : le mode invite ne pourra pas isoler JupyterLab"
