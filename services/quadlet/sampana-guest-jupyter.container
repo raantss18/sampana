@@ -1,0 +1,66 @@
+[Unit]
+Description=Sampana — JupyterLab invité (éphémère, sans réseau)
+After=network-online.target
+
+[Container]
+Image=localhost/sampana/guest-jupyter:latest
+
+# AUCUN reseau. C'est la protection principale : un notebook execute du code
+# arbitraire, et l'instance est joignable depuis Internet via le Funnel. Sans
+# reseau, ce code ne peut ni miner, ni relayer d'attaque depuis ton IP, ni
+# joindre tes autres services sur 127.0.0.1 (qui, eux, n'ont plus de mot de
+# passe propre : ils comptent sur Sampana en amont).
+#
+# Consequence directe : le conteneur ne peut pas ecouter sur un port TCP.
+# D'ou la socket Unix ci-dessous, que Caddy vient chercher dans un repertoire
+# partage. C'est le seul canal entre l'invite et le reste de la machine.
+Network=none
+
+# keep-id : l'uid 1000 du conteneur (jovyan) correspond a raantss sur l'hote,
+# donc la socket est creee avec un proprietaire exploitable. Le repertoire est
+# setgid caddy (voir /etc/tmpfiles.d/sampana-guest.conf), la socket herite donc
+# du groupe caddy et un mode 0660 suffit.
+UserNS=keep-id
+Volume=/run/sampana-guest:/sock:Z
+
+# Dossier partage, en LECTURE SEULE (:ro). L'enseignant y depose cours et
+# modeles ; un etudiant peut les lire et les copier dans son espace de travail,
+# jamais les modifier ni les effacer pour les autres.
+Volume=@SHARE@:/home/jovyan/partage:ro
+
+# Relais vers Ollama. Monte en lecture seule : c'est du code execute au
+# demarrage, un invite ne doit pas pouvoir le reecrire.
+Volume=@HOME@/.local/share/sampana/guest-ollama-bridge.py:/opt/ollama-bridge.py:ro
+
+# Repertoire de travail en memoire : rien ne survit a un redemarrage du
+# conteneur, ce qui EST la definition du mode non persistant demande.
+Tmpfs=/home/jovyan/work:size=2g
+
+# 5 a 20 etudiants sur une instance partagee. Les bornes evitent qu'une seule
+# boucle infinie emporte la machine et tes propres services avec elle.
+Memory=12G
+PodmanArgs=--cpus=8 --pids-limit=800
+
+# Ollama est joignable sur la boucle locale INTERNE au conteneur, republiee par
+# le relais depuis la socket Unix. Les extensions IA s'y connectent normalement.
+Environment=OLLAMA_BASE_URL=http://127.0.0.1:11434
+
+# Le relais demarre en arriere-plan, puis Jupyter prend la place du processus
+# principal (exec) pour que systemd suive bien le bon PID.
+Exec=bash -c "python3 /opt/ollama-bridge.py & exec start-notebook.py \
+  --ServerApp.sock=/sock/jupyter.sock \
+  --ServerApp.sock_mode=0660 \
+  --IdentityProvider.token= \
+  --ServerApp.password= \
+  --ServerApp.base_url=/guest/jupyter/ \
+  --ServerApp.root_dir=/home/jovyan/work \
+  --ServerApp.allow_origin=* \
+  --ServerApp.terminals_enabled=False \
+  --ServerApp.quit_button=False"
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
