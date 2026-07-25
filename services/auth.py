@@ -425,10 +425,14 @@ class Handler(BaseHTTPRequestHandler):
             tok = self._token()
             if tok:
                 forget(tok)
+            # Le cookie d'effacement doit porter EXACTEMENT les memes attributs
+            # que celui pose a la connexion, sinon le navigateur ne le fait pas
+            # correspondre et ne supprime rien. Un `Domain=` fixe et un `Secure`
+            # inconditionnel echouaient donc depuis le reseau local : la page de
+            # connexion s'affichait, mais la session restait valide.
             self._send(302, b"", {
                 "Location": f"{self._origin()}/auth/login",
-                "Set-Cookie": f"{COOKIE}=; Domain={self.host}; Path=/; Max-Age=0; "
-                              "Secure; HttpOnly; SameSite=Lax",
+                "Set-Cookie": self._cookie("", 0),
             })
         else:
             self._send(404)

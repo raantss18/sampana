@@ -138,6 +138,17 @@
       <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke-linejoin="round"/>
     </svg>
   </button>
+
+  <!-- La route existait deja cote serveur, mais rien ne l'appelait : il fallait
+       taper /auth/logout a la main, ou attendre les 15 min d'inactivite. -->
+  <a class="btn" id="logout" href="/auth/logout"
+     title="Se déconnecter" aria-label="Se déconnecter">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 17l5-5-5-5"/><path d="M20 12H9"/>
+      <path d="M12 20H6a2 2 0 01-2-2V6a2 2 0 012-2h6"/>
+    </svg>
+  </a>
 </header>
 
 <main>
