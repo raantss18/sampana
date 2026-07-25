@@ -64,12 +64,17 @@ Environment=OLLAMA_BASE_URL=http://127.0.0.1:11434
 
 # Le relais demarre en arriere-plan, puis Jupyter prend la place du processus
 # principal (exec) pour que systemd suive bien le bon PID.
-# `jupyter_server_documents` est tire par jupyter-ai. Il DETOURNE le websocket
-# des noyaux et n'accepte que le protocole binaire v1 : tout message JSON le
-# fait planter (« cannot convert str object to bytes »), la connexion se ferme
-# et le notebook n'affiche jamais de resultat. Le noyau, lui, calcule tres
-# bien — d'ou un symptome trompeur. On le desactive au demarrage.
-Exec=bash -c "jupyter server extension disable jupyter_server_documents --sys-prefix >/dev/null 2>&1; \
+# La pile de collaboration temps reel, tiree par jupyter-ai, casse deux
+# choses et ne sert a rien ici (instance ephemere et partagee) :
+#   - jupyter_server_documents detourne le websocket des noyaux et n'accepte
+#     que le protocole binaire v1 : aucun resultat ne revenait ;
+#   - jupyter-collaboration est incompatible avec ce JupyterLab et reclame des
+#     identifiants de fichier introuvables (« File ID error » a l'ouverture).
+# On la retire au demarrage. La desactiver sans la desinstaller ne suffisait
+# pas : le frontend restait et continuait de reclamer un service absent.
+# L'image la retire deja ; ceci couvre le cas d'une image plus ancienne.
+Exec=bash -c "pip uninstall -y jupyter-collaboration jupyter-collaboration-ui \
+    jupyter_server_documents jupyter_server_fileid jupyter-server-ydoc >/dev/null 2>&1; \
   python3 /opt/ollama-bridge.py & exec start-notebook.py \
   --ServerApp.sock=/sock/jupyter.sock \
   --ServerApp.sock_mode=0660 \
