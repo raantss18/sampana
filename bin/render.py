@@ -129,7 +129,7 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
     # rester joignable meme sans session : il repond alors «0 seconde», ce qui
     # est precisement ce que la page doit afficher quand la seance est close.
     portal = ["/", "/guest/enter", "/guest/logout", "/guest/remaining",
-              "/guest/files", "/guest/open"]
+              "/guest/files", "/guest/open", "/guest/save"]
     free = portal + ["/logo.svg"]
 
     lines = [
@@ -163,6 +163,8 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
     ]
 
     for svc in path_services:
+        if svc.get("direct"):
+            continue  # page statique : servie par le bloc de fichiers final
         p = svc["path"]
         mid = svc["id"].replace("-", "_")
         if svc.get("strip"):
@@ -185,6 +187,8 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
             ]
 
     for svc in path_services:
+        if svc.get("direct"):
+            continue
         if svc.get("trailing_slash"):
             lines.append(f"\tredir {svc['path']} {svc['path']}/ permanent")
     lines.append("")
@@ -345,6 +349,8 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
     # Redirections vers le slash final, uniquement quand le backend l'exige.
     # Surtout pas pour Next.js, qui retire le slash : les deux boucleraient.
     for svc in path_services:
+        if svc.get("direct"):
+            continue
         if svc.get("trailing_slash"):
             lines.append(f"\tredir {svc['path']} {svc['path']}/ permanent")
     lines.append("")
@@ -516,6 +522,9 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
             # Port publie par Funnel, quand il differe de l'ecoute locale.
             # La page invitee choisit selon l'origine par laquelle on la joint.
             "funnelPort": svc.get("funnel_port", svc.get("port")),
+            # Page servie directement par Caddy : elle a son propre bandeau,
+            # l'enveloppe ferait doublon.
+            "direct": bool(svc.get("direct")),
             "openPath": svc.get("open_path", "/"),
             "sharedAccount": bool(svc.get("shared_account")),
         })

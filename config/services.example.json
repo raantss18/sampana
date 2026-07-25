@@ -191,6 +191,27 @@
         "port": 10002,
         "upstream": "127.0.0.1:3002",
         "_comment": "Port hors Funnel : les trois ports publiables (443/8443/10000) sont pris. Accessible en salle uniquement."
+      },
+      {
+        "id": "guest-tableau",
+        "label": "Tableau blanc",
+        "desc": "Schémas et organisation d'idées. Tout reste dans votre navigateur.",
+        "icon": "box",
+        "route": "port",
+        "port": 10004,
+        "upstream": "127.0.0.1:10003",
+        "_comment": "Excalidraw. Port hors Funnel : les trois publiables sont pris."
+      },
+      {
+        "id": "guest-notes",
+        "label": "Notes",
+        "desc": "Éditeur Markdown avec aperçu. Enregistre dans votre espace de travail.",
+        "icon": "document",
+        "route": "path",
+        "path": "/guest/notes.html",
+        "upstream": "127.0.0.1:0",
+        "direct": true,
+        "_comment": "Page statique servie par Caddy, pas un service proxifie."
       }
     ]
   }

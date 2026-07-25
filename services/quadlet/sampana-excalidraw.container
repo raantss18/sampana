@@ -1,0 +1,29 @@
+[Unit]
+Description=Sampana — Excalidraw (tableau blanc)
+After=network-online.target
+
+[Container]
+Image=docker.io/excalidraw/excalidraw:latest
+
+# Application entierement statique : tout se passe dans le navigateur, les
+# dessins vivent dans son stockage local. Aucun compte, aucune base, et rien
+# n'est envoye ailleurs — ce qui la rend utilisable hors ligne, comme le reste
+# du mode invite.
+# Pas de `Network=host` : l'image lance nginx sur le port 80, qu'un conteneur
+# sans privileges ne peut pas lier — elle ignore la variable PORT. On publie
+# donc un port haut, sur la boucle locale : l'exposition passe par Caddy, qui
+# applique le code de seance.
+PublishPort=127.0.0.1:10003:80
+
+# Rien a ecrire : le conteneur ne sert que des fichiers statiques.
+ReadOnly=true
+Tmpfs=/tmp:size=64m
+Tmpfs=/var/cache/nginx:size=32m
+Tmpfs=/var/run:size=8m
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

@@ -16,23 +16,39 @@ USER ${NB_UID}
 # jupyter-ai fournit le panneau de chat et la commande %%ai dans les notebooks.
 # langchain-ollama est le connecteur : sans lui, jupyter-ai ne propose aucun
 # fournisseur local et le panneau reste vide.
+#
+# SANS l'extra [all] : celui-ci tire toute la pile de collaboration temps reel,
+# qui casse deux choses et ne sert a rien sur une instance ephemere partagee.
 RUN pip install --no-cache-dir \
-      "jupyter-ai[all]" \
+      jupyter-ai \
       langchain-ollama \
  && fix-permissions "${CONDA_DIR}" \
  && fix-permissions "/home/${NB_USER}"
 
-# jupyter-ai tire `jupyter_server_documents`, qui DETOURNE le websocket des
-# noyaux et n'accepte que le protocole binaire v1. Tout message JSON le fait
-# planter (« cannot convert str object to bytes »), la connexion se ferme, et
-# le notebook n'affiche jamais de resultat. Le noyau calcule pourtant tres
-# bien — d'ou un symptome tres trompeur : le noyau demarre, l'API repond, le
-# websocket s'etablit, et rien ne revient.
+# Retrait de la pile de collaboration temps reel, que jupyter-ai peut encore
+# tirer par dependance transitive. Deux degats distincts, une seule origine :
 #
-# La desactivation est aussi refaite au demarrage du conteneur (voir le
-# Quadlet) : une future version de jupyter-ai pourrait la reintroduire.
+#   - `jupyter_server_documents` DETOURNE le websocket des noyaux et n'accepte
+#     que le protocole binaire v1. Tout message JSON le fait planter
+#     (« cannot convert str object to bytes ») : le noyau demarre, l'API
+#     repond, le websocket s'etablit — et aucun resultat ne revient jamais.
+#
+#   - `jupyter-collaboration` est INCOMPATIBLE avec le JupyterLab de cette
+#     image et reclame malgre tout des identifiants de fichier : « File ID
+#     error » a chaque ouverture de notebook.
+#
+# On DESINSTALLE, on ne se contente pas de desactiver : une premiere tentative
+# avait coupe le service cote serveur en laissant le frontend en place, qui
+# continuait d'appeler un service devenu absent. L'etat mi-installe etait pire
+# que les deux extremes.
+RUN pip uninstall -y \
+      jupyter-collaboration jupyter-collaboration-ui \
+      jupyter_server_documents jupyter_server_fileid jupyter-server-ydoc \
+      >/dev/null 2>&1 || true
+
+# Garde-fou : si un paquet a survecu, on desactive au moins son extension.
 RUN jupyter server extension disable jupyter_server_documents --sys-prefix \
-    || echo "jupyter_server_documents absent — rien a desactiver."
+      >/dev/null 2>&1 || true
 
 # SageMath : le Jupyter de l'enseignant en dispose, les etudiants l'attendent
 # donc aussi. C'est un gros paquet (plusieurs Go) et la resolution conda est

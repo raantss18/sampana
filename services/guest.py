@@ -1354,6 +1354,38 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"code": code})
             return
 
+        if path == "/guest/save":
+            # Enregistre une note dans l'espace de travail de l'etudiant, pour
+            # qu'elle voisine ses notebooks et parte avec l'export de fin de
+            # seance. Le dossier partage, lui, reste en lecture seule.
+            if self._sid() is None:
+                self._json(403, {"error": "session requise"})
+                return
+            body = self._body()
+            nom = safe_relpath(str(body.get("name", "")))
+            contenu = str(body.get("content", ""))
+            # Un seul niveau : l'espace de travail n'a pas vocation a recevoir
+            # une arborescence depuis cet editeur.
+            if not nom or "/" in nom:
+                self._json(400, {"error": "nom de fichier invalide"})
+                return
+            if len(contenu.encode()) > 2 * 2**20:
+                self._json(413, {"error": "note trop volumineuse (2 Mo max)"})
+                return
+            try:
+                r = subprocess.run(
+                    ["podman", "exec", "-i", "systemd-sampana-guest-jupyter",
+                     "tee", f"/home/jovyan/work/{nom}"],
+                    input=contenu.encode(), capture_output=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self._json(500, {"error": f"enregistrement impossible : {e}"})
+                return
+            if r.returncode != 0:
+                self._json(500, {"error": (r.stderr or b"").decode()[:200] or "refuse"})
+                return
+            self._json(200, {"saved": nom})
+            return
+
         if path == "/guest/open":
             # Ouvrir un fichier partage dans l'outil correspondant.
             #

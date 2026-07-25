@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Notes — Sampana</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  :root {
+    --guest: #7c5cff; --bg: #fbfbfd; --surface: #fff; --line: #e6e6ef;
+    --txt: #16161d; --dim: #6b6b7b; --hover: #f3f3f8; --code: #f1f1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e0e13; --surface: #16161d; --line: #26262f;
+            --txt: #ececf2; --dim: #9a9aab; --hover: #1e1e27; --code: #1c1c25; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: var(--bg); color: var(--txt);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--surface); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    color: var(--txt); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 13px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--guest); }
+  .btn.plein { background: var(--guest); color: #fff; border-color: var(--guest); }
+  h1 { font-size: 15px; margin: 0; font-weight: 650; }
+  .spacer { flex: 1 1 auto; }
+  #etat { font-size: 12.5px; color: var(--dim); }
+
+  .barre {
+    display: flex; gap: 4px; padding: 7px 14px; overflow-x: auto;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .barre button {
+    background: none; border: 0; color: var(--dim); cursor: pointer;
+    padding: 6px 9px; border-radius: 7px; font: inherit; font-size: 13px;
+    white-space: nowrap;
+  }
+  .barre button:hover { background: var(--hover); color: var(--txt); }
+
+  main { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  /* Sur téléphone, deux colonnes seraient illisibles : on empile et on bascule. */
+  @media (max-width: 820px) {
+    main { grid-template-columns: 1fr; }
+    main.apercu #edit { display: none; }
+    main:not(.apercu) #vue { display: none; }
+    #bascule { display: inline-flex !important; }
+  }
+  #bascule { display: none; }
+
+  textarea {
+    width: 100%; height: 100%; resize: none; border: 0; outline: none;
+    padding: 20px; background: var(--bg); color: var(--txt);
+    font: 14px/1.7 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    border-right: 1px solid var(--line);
+  }
+  #vue { padding: 20px 24px; overflow-y: auto; }
+  #vue > :first-child { margin-top: 0; }
+  #vue h1, #vue h2, #vue h3 { line-height: 1.3; margin: 1.4em 0 .5em; }
+  #vue h1 { font-size: 1.6em; } #vue h2 { font-size: 1.3em; } #vue h3 { font-size: 1.1em; }
+  #vue code {
+    background: var(--code); padding: 2px 6px; border-radius: 5px;
+    font: 13px ui-monospace, Menlo, monospace;
+  }
+  #vue pre {
+    background: var(--code); padding: 14px 16px; border-radius: 10px;
+    overflow-x: auto; line-height: 1.5;
+  }
+  #vue pre code { background: none; padding: 0; }
+  #vue blockquote {
+    margin: 1em 0; padding: 2px 0 2px 16px; color: var(--dim);
+    border-left: 3px solid var(--line);
+  }
+  #vue table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  #vue td, #vue th { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+  #vue a { color: var(--guest); }
+  #vue img { max-width: 100%; border-radius: 8px; }
+  #vue hr { border: 0; border-top: 1px solid var(--line); margin: 1.6em 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="btn" id="retour" href="/guest/">← Outils</a>
+  <h1>Notes</h1>
+  <span id="etat"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="bascule" type="button">Aperçu</button>
+  <button class="btn" id="tele" type="button">Télécharger</button>
+  <button class="btn plein" id="garder" type="button">Enregistrer</button>
+</header>
+
+<div class="barre">
+  <button data-ins="# ">Titre</button>
+  <button data-ins="## ">Sous-titre</button>
+  <button data-enc="**">Gras</button>
+  <button data-enc="*">Italique</button>
+  <button data-ins="- ">Liste</button>
+  <button data-ins="1. ">Numérotée</button>
+  <button data-ins="> ">Citation</button>
+  <button data-enc="`">Code</button>
+  <button data-ins="```\n\n```">Bloc</button>
+  <button data-ins="| a | b |\n|---|---|\n| 1 | 2 |">Tableau</button>
+  <button data-ins="---\n">Séparateur</button>
+</div>
+
+<main id="main">
+  <textarea id="edit" spellcheck="true"
+            placeholder="Écrivez ici. La colonne de droite montre le rendu."></textarea>
+  <div id="vue"></div>
+</main>
+
+<script>
+// Éditeur Markdown — sans dépendance et sans réseau.
+//
+// Le rendu est fait ici plutôt que sur le serveur : un aller-retour à chaque
+// frappe serait perceptible via le Funnel, et la page doit rester utilisable
+// hors ligne, comme le reste du mode invité.
+
+const edit = document.getElementById('edit');
+const vue  = document.getElementById('vue');
+const etat = document.getElementById('etat');
+
+// ── Rendu Markdown ───────────────────────────────────────────────
+// L'ordre compte : on échappe le HTML AVANT toute transformation. L'inverse
+// laisserait passer du balisage écrit par l'utilisateur — et cette page est
+// atteignable par tous les invités.
+const echapper = (t) => t
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const enLigne = (t) => t
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+  .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+  // Seuls http(s) et les chemins relatifs : un lien `javascript:` s'exécuterait
+  // au clic, dans l'origine du portail.
+  .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<img src="$2" alt="$1">')
+  .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g,
+           '<a href="$2" rel="noopener noreferrer" target="_blank">$1</a>');
+
+const rendre = (src) => {
+  const lignes = echapper(src).split('\n');
+  const out = [];
+  let liste = null, dansCode = false, tampon = [];
+
+  const fermerListe = () => { if (liste) { out.push(`</${liste}>`); liste = null; } };
+
+  for (const ligne of lignes) {
+    if (/^```/.test(ligne)) {
+      if (dansCode) { out.push(`<pre><code>${tampon.join('\n')}</code></pre>`); tampon = []; }
+      dansCode = !dansCode;
+      continue;
+    }
+    if (dansCode) { tampon.push(ligne); continue; }
+
+    const titre = ligne.match(/^(#{1,6})\s+(.*)$/);
+    if (titre) { fermerListe(); out.push(`<h${titre[1].length}>${enLigne(titre[2])}</h${titre[1].length}>`); continue; }
+
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(ligne)) { fermerListe(); out.push('<hr>'); continue; }
+
+    const puce = ligne.match(/^\s*[-*+]\s+(.*)$/);
+    const num  = ligne.match(/^\s*\d+\.\s+(.*)$/);
+    if (puce || num) {
+      const type = puce ? 'ul' : 'ol';
+      if (liste !== type) { fermerListe(); out.push(`<${type}>`); liste = type; }
+      out.push(`<li>${enLigne((puce || num)[1])}</li>`);
+      continue;
+    }
+    fermerListe();
+
+    const cite = ligne.match(/^>\s?(.*)$/);
+    if (cite) { out.push(`<blockquote>${enLigne(cite[1])}</blockquote>`); continue; }
+
+    // Tableau : une ligne de séparation « |---|---| » suit l'en-tête.
+    if (/^\s*\|.*\|\s*$/.test(ligne)) {
+      const cellules = ligne.split('|').slice(1, -1).map(c => c.trim());
+      if (cellules.every(c => /^-{2,}$/.test(c))) continue;   // ligne de séparation
+      const balise = out[out.length - 1]?.startsWith('<table>') ? 'td' : 'th';
+      if (balise === 'th') out.push('<table>');
+      out.push(`<tr>${cellules.map(c => `<${balise}>${enLigne(c)}</${balise}>`).join('')}</tr>`);
+      continue;
+    }
+    if (out[out.length - 1]?.startsWith('<tr>') && !/^\s*\|/.test(ligne)) out.push('</table>');
+
+    if (ligne.trim()) out.push(`<p>${enLigne(ligne)}</p>`);
+  }
+  fermerListe();
+  if (dansCode && tampon.length) out.push(`<pre><code>${tampon.join('\n')}</code></pre>`);
+  return out.join('\n');
+};
+
+// ── Édition ──────────────────────────────────────────────────────
+const CLE = 'sampana-notes';
+let minuteur;
+
+const rafraichir = () => {
+  vue.innerHTML = rendre(edit.value);
+  // Sauvegarde locale : une session invitée peut expirer, un onglet se fermer.
+  // Le texte survit dans le navigateur de l'étudiant.
+  clearTimeout(minuteur);
+  minuteur = setTimeout(() => {
+    try { localStorage.setItem(CLE, edit.value); } catch {}
+    etat.textContent = 'brouillon enregistré dans ce navigateur';
+  }, 400);
+};
+
+edit.addEventListener('input', rafraichir);
+try { edit.value = localStorage.getItem(CLE) || ''; } catch {}
+
+document.querySelector('.barre').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const [d, f] = [edit.selectionStart, edit.selectionEnd];
+  const choisi = edit.value.slice(d, f);
+  let texte, curseur;
+  if (b.dataset.enc) {           // encadre la sélection
+    texte = b.dataset.enc + (choisi || 'texte') + b.dataset.enc;
+    curseur = d + texte.length;
+  } else {                        // insère en début de ligne
+    texte = b.dataset.ins.replace(/\\n/g, '\n') + choisi;
+    curseur = d + texte.length;
+  }
+  edit.setRangeText(texte, d, f, 'end');
+  edit.focus();
+  edit.setSelectionRange(curseur, curseur);
+  rafraichir();
+});
+
+document.getElementById('bascule').addEventListener('click', (e) => {
+  const m = document.getElementById('main');
+  m.classList.toggle('apercu');
+  e.target.textContent = m.classList.contains('apercu') ? 'Éditer' : 'Aperçu';
+});
+
+document.getElementById('tele').addEventListener('click', () => {
+  const blob = new Blob([edit.value], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'notes.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('garder').addEventListener('click', async (e) => {
+  const nom = prompt('Nom du fichier', 'notes.md');
+  if (!nom) return;
+  e.target.disabled = true;
+  etat.textContent = 'enregistrement…';
+  try {
+    const r = await fetch('/guest/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nom, content: edit.value }),
+    });
+    const out = await r.json();
+    etat.textContent = r.ok
+      ? `enregistré : ${out.saved} (espace de travail)`
+      : (out.error || 'échec de l’enregistrement');
+  } catch {
+    etat.textContent = 'échec de l’enregistrement';
+  }
+  e.target.disabled = false;
+});
+
+rafraichir();
+</script>
+
+</body>
+</html>
