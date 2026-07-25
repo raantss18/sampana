@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sampana — Mode invité</title>
+<link rel="stylesheet" href="/sampana.css" />
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  :root { --guest: #a78bfa; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 22px; border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+  }
+  header b { font-size: 17px; letter-spacing: -.3px; }
+  .badge {
+    font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 99px;
+    background: color-mix(in srgb, var(--guest) 18%, transparent); color: var(--guest);
+  }
+  .spacer { flex: 1 1 auto; }
+  a.quit { color: var(--dim); font-size: 13px; text-decoration: none; }
+  a.quit:hover { color: var(--txt); }
+
+  main { flex: 1 1 auto; padding: 26px 22px; max-width: 980px; margin: 0 auto; width: 100%; }
+
+  .warn {
+    display: flex; gap: 12px; align-items: flex-start;
+    border: 1px solid color-mix(in srgb, var(--guest) 40%, var(--line));
+    background: color-mix(in srgb, var(--guest) 8%, transparent);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 26px;
+  }
+  .warn p { margin: 0; font-size: 13.5px; line-height: 1.65; }
+  .warn b { color: var(--guest); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 20px; transition: .15s;
+  }
+  a.card:hover { border-color: var(--guest); transform: translateY(-2px); }
+  .card h2 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.6; }
+  .creds {
+    margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+    font-size: 12.5px; color: var(--dim);
+  }
+  .creds code { color: var(--txt); font-size: 12.5px; }
+
+  footer { padding: 18px 22px; color: var(--dim); font-size: 12.5px; text-align: center; }
+
+  .alert {
+    padding: 13px 22px; font-size: 14px; font-weight: 600; text-align: center;
+    background: #b45309; color: #fff;
+  }
+  .alert.urgent { background: #b91c1c; }
+</style>
+</head>
+<body>
+
+<header>
+  <b>Sampana</b>
+  <span class="badge">Mode invité</span>
+  <span class="badge" id="clock" hidden></span>
+  <span class="spacer"></span>
+  <a class="quit" href="/guest/logout">Quitter la session</a>
+</header>
+
+<div class="alert" id="alert" hidden></div>
+
+<main>
+  <div class="warn">
+    <div>
+      <p><b>Rien n'est conservé.</b> Cet espace est partagé entre tous les
+      participants et remis à zéro régulièrement. <b>Téléchargez votre travail
+      avant de fermer la page</b> — sinon il sera perdu.</p>
+      <p id="ttl" style="margin-top:6px"></p>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</main>
+
+<footer>Sampana — session invitée, sans compte et sans sauvegarde.</footer>
+
+<script>
+// ── Compte a rebours et preavis ───────────────────────────────────
+// Les outils s'ouvrent dans d'autres onglets : un bandeau seul passerait
+// inapercu. On change donc AUSSI le titre du document, visible depuis la
+// barre d'onglets, et on emet une notification systeme si elle est permise.
+(() => {
+  const alertBox = document.getElementById('alert');
+  const clock    = document.getElementById('clock');
+  const TITLE    = document.title;
+  const seuils   = [10, 5];          // minutes
+  const annonces = new Set();
+
+  const fmt = (s) => {
+    const m = Math.floor(s / 60);
+    return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`;
+  };
+
+  const notifier = (texte) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try { new Notification('Sampana — mode invité', { body: texte }); } catch {}
+  };
+
+  const tick = async () => {
+    let data;
+    try {
+      data = await (await fetch('/guest/remaining', { cache: 'no-store' })).json();
+    } catch { return; }
+
+    const s = data.secondsLeft;
+    if (!s) {                       // session close ou expiree
+      document.title = 'Session terminée — Sampana';
+      alertBox.hidden = false;
+      alertBox.className = 'alert urgent';
+      alertBox.textContent = 'Session terminée. Rechargez la page pour vous reconnecter.';
+      clock.hidden = true;
+      return;
+    }
+
+    clock.hidden = false;
+    clock.textContent = `${fmt(s)} restantes`;
+
+    // Identifiants du compte partage, renouveles a chaque seance.
+    if (data.latexEmail) {
+      for (const el of document.querySelectorAll('[data-creds]')) {
+        el.innerHTML = `Compte partagé — identifiant : <code>${data.latexEmail}</code><br>` +
+                       `mot de passe : <code>${data.latexPassword || '—'}</code>`;
+      }
+    }
+
+    const minutes = Math.ceil(s / 60);
+    for (const seuil of seuils) {
+      // <= seuil et > seuil-1 : l'annonce ne part qu'une fois par palier.
+      if (minutes <= seuil && !annonces.has(seuil)) {
+        annonces.add(seuil);
+        const texte = `Il vous reste ${seuil} minutes. Téléchargez votre travail : rien n'est conservé.`;
+        alertBox.hidden = false;
+        alertBox.className = seuil <= 5 ? 'alert urgent' : 'alert';
+        alertBox.textContent = texte;
+        document.title = `⚠ ${seuil} min — Sampana`;
+        notifier(texte);
+      }
+    }
+    if (minutes > seuils[0]) document.title = TITLE;
+  };
+
+  // La permission ne peut etre demandee que sur un geste de l'utilisateur ;
+  // l'arrivee sur cette page en est un dans la plupart des navigateurs.
+  if ('Notification' in window && Notification.permission === 'default') {
+    document.addEventListener('click', () => Notification.requestPermission(), { once: true });
+  }
+
+  tick();
+  setInterval(tick, 30000);
+})();
+
+// Le manifeste est genere par bin/render.py depuis config/services.json : les
+// cartes suivent donc la configuration reelle, sans duplication a maintenir.
+// URL relative : la page est servie sous /guest/, que le proxy retire avant
+// d'atteindre le disque. Un chemin absolu casserait selon le point d'entree.
+fetch('guest.web.json')
+  .then(r => r.json())
+  .then(cfg => {
+    const grid = document.getElementById('grid');
+
+    const mins = Math.round((cfg.ttl || 7200) / 60);
+    document.getElementById('ttl').textContent =
+      `La session expire automatiquement au bout de ${mins} minutes.`;
+
+    for (const s of cfg.services) {
+      const a = document.createElement('a');
+      a.className = 'card';
+
+      // Un service « port » vit sur un autre port que cette page. On reconstruit
+      // donc l'URL a partir du nom d'hote courant, qui differe selon l'acces :
+      // adresse IP en salle, nom .ts.net par le Funnel.
+      // Chaque outil s'ouvre dans une enveloppe qui lui ajoute une barre
+      // «← Outils» : aucun d'eux n'a de bouton retour, et un etudiant entre
+      // dans JupyterLab ou LaTeX Lab s'y retrouvait prisonnier.
+      //
+      // L'enveloppe est servie sur le port de l'outil, jamais sur celui-ci :
+      // LaTeX Lab refuse d'etre encadre depuis une autre origine.
+      const retour = `${location.origin}/guest/`;
+      const q = (u, l) => `u=${encodeURIComponent(u)}&l=${encodeURIComponent(l)}` +
+                          `&b=${encodeURIComponent(retour)}`;
+
+      a.href = s.route === 'port'
+        ? `${location.protocol}//${location.hostname}:${s.port}/sampana/tool.html?` +
+          q(s.openPath || '/', s.label)
+        : `/guest/tool.html?` + q(`${s.path}/`, s.label);
+
+      // Les identifiants LaTeX Lab changent a chaque seance : ils sont
+      // recuperes en direct, pas lus dans le manifeste statique qui afficherait
+      // ceux de la seance precedente. La carte est remplie par la suite.
+      let creds = '';
+      if (s.sharedAccount) creds = `<div class="creds" data-creds>Compte partagé — chargement…</div>`;
+
+      a.innerHTML = `<h2>${s.label}</h2><p>${s.desc}</p>${creds}`;
+      grid.appendChild(a);
+    }
+  })
+  .catch(() => {
+    document.getElementById('grid').innerHTML =
+      '<p style="color:var(--dim)">Impossible de charger la liste des outils.</p>';
+  });
+</script>
+
+</body>
+</html>

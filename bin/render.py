@@ -64,7 +64,174 @@ def auth_block(env: dict[str, str], exclude: bool = False) -> list[str]:
     return lines
 
 
-def caddyfile(env: dict[str, str], services: list[dict]) -> str:
+def guest_enabled(env: dict[str, str]) -> bool:
+    return env.get("GUEST_ENABLED", "0") in ("1", "true", "yes")
+
+
+def upstream_directive(svc: dict) -> str:
+    """Cible d'un reverse_proxy, cote Caddy.
+
+    Le JupyterLab invite n'ecoute sur aucun port : prive de reseau, il ne peut
+    exposer qu'une socket Unix. Caddy la designe par `unix/<chemin>`.
+    """
+    up = svc["upstream"]
+    if up.startswith("unix/"):
+        return up
+    if svc.get("upstream_scheme", "http").startswith("https"):
+        return f"https://{up}"
+    return up
+
+
+def guest_site(env: dict[str, str], guest: dict) -> list[str]:
+    """Site invite : le SEUL de Sampana lie a une adresse routable.
+
+    Deux zones y cohabitent et l'ordre des blocs les separe :
+      - le portail (chooser, saisie du code) doit rester libre d'acces, sinon
+        personne ne pourrait jamais entrer le code ;
+      - tout le reste passe par /guest/verify.
+
+    Meme piege que sur le site principal : Caddy evalue forward_auth avant les
+    `handle`, il faut donc exclure explicitement les chemins du portail.
+    """
+    gate = f"127.0.0.1:{env['GUEST_GATE_PORT']}"
+    web_root = env["WEB_ROOT"]
+    services = guest.get("services", [])
+    path_services = [s for s in services if s.get("route") == "path"]
+
+    # `/guest/remaining` est servi par le portail, pas par le disque, et doit
+    # rester joignable meme sans session : il repond alors «0 seconde», ce qui
+    # est precisement ce que la page doit afficher quand la seance est close.
+    portal = ["/", "/guest/enter", "/guest/logout", "/guest/remaining"]
+    free = portal + ["/logo.svg"]
+
+    lines = [
+        "# ── Mode invite ────────────────────────────────────────────────",
+        "# Sans mot de passe et sans persistance. Contrairement a tout le reste",
+        "# de Sampana, ce bloc ecoute sur une adresse routable : c'est son role.",
+        f":{env['GUEST_PORT']} {{",
+        f"\tbind {env.get('GUEST_BIND', '0.0.0.0')}",
+        "\tencode gzip",
+        "",
+        "\t# Portail : accessible SANS session invitee, sinon le code de seance",
+        "\t# ne pourrait jamais etre saisi. `handle` n'accepte qu'un seul matcher,",
+        "\t# d'ou le matcher nomme.",
+        f"\t@portal path {' '.join(portal)}",
+        "\thandle @portal {",
+        f"\t\treverse_proxy {gate}",
+        "\t}",
+        "",
+        "\thandle /logo.svg {",
+        f"\t\troot * {web_root}",
+        "\t\tfile_server",
+        "\t}",
+        "",
+        f"\t@guarded not path {' '.join(free)}",
+        f"\tforward_auth @guarded {gate} {{",
+        "\t\turi /guest/verify",
+        "\t\tcopy_headers X-Forwarded-Uri X-Forwarded-Host X-Forwarded-Proto",
+        "\t}",
+        "",
+    ]
+
+    for svc in path_services:
+        p = svc["path"]
+        mid = svc["id"].replace("-", "_")
+        if svc.get("strip"):
+            lines += [
+                f"\t# {svc['label']} — prefixe RETIRE : le backend n'accepte que",
+                "\t# des chemins absolus depuis sa racine.",
+                f"\thandle_path {p}/* {{",
+                f"\t\treverse_proxy {upstream_directive(svc)}",
+                "\t}",
+                "",
+            ]
+        else:
+            lines += [
+                f"\t# {svc['label']} — prefixe conserve (le backend est configure avec).",
+                f"\t@{mid} path {p} {p}/*",
+                f"\thandle @{mid} {{",
+                f"\t\treverse_proxy {upstream_directive(svc)}",
+                "\t}",
+                "",
+            ]
+
+    for svc in path_services:
+        if svc.get("trailing_slash"):
+            lines.append(f"\tredir {svc['path']} {svc['path']}/ permanent")
+    lines.append("")
+
+    share = env.get("GUEST_SHARE_DIR", "")
+    if share:
+        lines += [
+            "\t# Dossier partage, en consultation et telechargement.",
+            "\t# file_server ne sert que des GET : la lecture seule est structurelle",
+            "\t# ici, elle ne depend pas seulement des permissions du disque.",
+            "\thandle_path /guest/partage/* {",
+            f"\t\troot * {share}",
+            "\t\tfile_server browse",
+            "\t}",
+            "",
+            "\tredir /guest/partage /guest/partage/ permanent",
+            "",
+        ]
+
+    lines += [
+        "\t# Tableau de bord invite. `handle_path` retire le prefixe : sans lui,",
+        f"\t# une requete /guest/ irait chercher {web_root}/guest/guest/.",
+        "\thandle_path /guest/* {",
+        f"\t\troot * {web_root}/guest",
+        "\t\tfile_server",
+        "\t}",
+        "",
+        "\t# Toute autre URL ramene au tableau de bord plutot qu'a une 404 nue :",
+        "\t# un invite qui tombe sur un lien mort doit pouvoir repartir.",
+        "\thandle {",
+        "\t\tredir * /guest/",
+        "\t}",
+        "}",
+        "",
+    ]
+
+    # Services invites sur un port dedie (ceux qui exigent la racine).
+    for svc in services:
+        if svc.get("route") != "port":
+            continue
+        lines += [
+            f"# {svc['label']} — invite",
+            f":{svc['port']} {{",
+            f"\tbind {env.get('GUEST_BIND', '0.0.0.0')}",
+            "",
+            "\t# Enveloppe «retour aux outils», servie SUR CE PORT. Elle doit y",
+            "\t# etre : LaTeX Lab renvoie X-Frame-Options SAMEORIGIN, et un port",
+            "\t# different est une origine differente. Encadre depuis le port du",
+            "\t# tableau de bord, il n'afficherait qu'un cadre blanc.",
+            "\thandle /sampana/tool.html {",
+            f"\t\troot * {web_root}/guest",
+            "\t\trewrite * /tool.html",
+            "\t\tfile_server",
+            "\t}",
+            "",
+            "\t# Le compte a rebours de l'enveloppe interroge le portail, qui",
+            "\t# n'est monte que sur le port du tableau de bord. On le relaie.",
+            "\thandle /guest/remaining {",
+            f"\t\treverse_proxy {gate}",
+            "\t}",
+            "",
+            f"\t@app not path /sampana/* /guest/remaining",
+            f"\tforward_auth @app {gate} {{",
+            "\t\turi /guest/verify",
+            "\t\tcopy_headers X-Forwarded-Uri X-Forwarded-Host X-Forwarded-Proto",
+            "\t}",
+            "",
+            f"\treverse_proxy {upstream_directive(svc)}",
+            "}",
+            "",
+        ]
+
+    return lines
+
+
+def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = None) -> str:
     port = env["CADDY_PORT"]
     web_root = env["WEB_ROOT"]
 
@@ -83,7 +250,7 @@ def caddyfile(env: dict[str, str], services: list[dict]) -> str:
         "# or Tailscale transmet le nom .ts.net et toutes les requetes recevraient",
         "# un 200 vide. On ecoute sur le port, et `bind` restreint a la boucle locale.",
         f":{port} {{",
-        "\tbind 127.0.0.1",
+        f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
         "\tencode gzip",
         "",
         "\t# Pages de connexion : accessibles SANS session, sinon on ne pourrait",
@@ -107,6 +274,17 @@ def caddyfile(env: dict[str, str], services: list[dict]) -> str:
         "\t}",
         "",
     ]
+
+    if guest_enabled(env):
+        lines += [
+            "\t# Pilotage du mode invite. Ces routes sont sur le site PRINCIPAL,",
+            "\t# donc derriere le mot de passe maitre : le portail invite, lui,",
+            "\t# ne proxifie que /guest/*, et ne peut pas les atteindre.",
+            "\thandle /guest-admin/* {",
+            f"\t\treverse_proxy 127.0.0.1:{env['GUEST_GATE_PORT']}",
+            "\t}",
+            "",
+        ]
 
     # Les routes 'strip' d'abord : un prefixe d'API doit gagner sur le prefixe
     # applicatif dont il partage le debut (/mi-saina-api vs /mi-saina).
@@ -184,6 +362,9 @@ def caddyfile(env: dict[str, str], services: list[dict]) -> str:
             lines.append(f"\treverse_proxy {svc['upstream']}")
         lines += ["}", ""]
 
+    if guest and guest_enabled(env):
+        lines += guest_site(env, guest)
+
     return "\n".join(lines)
 
 
@@ -199,6 +380,116 @@ def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
             f"http://127.0.0.1:{svc['port']}"
         )
     return cmds
+
+
+def funnel_commands(env: dict[str, str], guest: dict) -> tuple[list[str], list[str]]:
+    """Commandes d'ouverture et de fermeture du Funnel public.
+
+    Le Funnel publie sur Internet, sans restriction d'origine, et l'URL .ts.net
+    apparait dans les journaux de Certificate Transparency : elle est scannee en
+    quelques heures. On genere donc AUSSI la commande de fermeture, pour que le
+    mode invite public puisse n'etre ouvert que pendant le cours.
+
+    Rappel : Tailscale n'accepte le Funnel que sur 443, 8443 et 10000.
+    """
+    allowed = {443, 8443, 10000}
+    on = [f"tailscale funnel --bg --https={env['GUEST_FUNNEL_PORT']} "
+          f"http://127.0.0.1:{env['GUEST_PORT']}"]
+    off = [f"tailscale funnel --https={env['GUEST_FUNNEL_PORT']} off"]
+
+    for svc in guest.get("services", []):
+        if svc.get("route") != "port":
+            continue
+        if svc["port"] not in allowed:
+            # Pas une erreur : un service invite peut n'exister qu'en salle.
+            # Tailscale ne publie que 443, 8443 et 10000, et ils sont comptes.
+            print(
+                f"  note : {svc['id']} (port {svc['port']}) restera accessible "
+                f"sur le LAN uniquement — Funnel n'accepte que 443, 8443, 10000.",
+                file=sys.stderr,
+            )
+            continue
+        on.append(f"tailscale funnel --bg --https={svc['port']} "
+                  f"http://127.0.0.1:{svc['port']}")
+        off.append(f"tailscale funnel --https={svc['port']} off")
+
+    if int(env["GUEST_FUNNEL_PORT"]) not in allowed:
+        raise SystemExit(
+            f"ERREUR : GUEST_FUNNEL_PORT={env['GUEST_FUNNEL_PORT']} n'est pas "
+            f"publiable. Ports autorises : 443, 8443, 10000."
+        )
+    return on, off
+
+
+def check_ports(env: dict[str, str], services: list[dict], guest: dict) -> None:
+    """Deux sites Caddy sur le meme port, c'est un service invite qui se
+    retrouve devant le mot de passe maitre — ou l'inverse. On refuse tot."""
+    seen: dict[int, str] = {}
+    for svc in services:
+        if svc.get("route") == "port":
+            seen[svc["port"]] = svc["id"]
+    seen[int(env["CADDY_PORT"])] = "CADDY_PORT"
+
+    if not guest_enabled(env):
+        return
+    for port, who in (
+        (int(env["GUEST_PORT"]), "GUEST_PORT"),
+        (int(env["GUEST_GATE_PORT"]), "GUEST_GATE_PORT"),
+    ):
+        if port in seen:
+            raise SystemExit(f"ERREUR : {who}={port} est deja pris par {seen[port]}.")
+        seen[port] = who
+    for svc in guest.get("services", []):
+        if svc.get("route") != "port":
+            continue
+        if svc["port"] in seen:
+            raise SystemExit(
+                f"ERREUR : le service invite {svc['id']} veut le port {svc['port']}, "
+                f"deja utilise par {seen[svc['port']]}. Un port ne peut pas etre a "
+                f"la fois protege par le mot de passe maitre et ouvert aux invites."
+            )
+        seen[svc["port"]] = svc["id"]
+
+
+def guest_manifest(env: dict[str, str], guest: dict) -> dict:
+    """Manifeste du tableau de bord invite."""
+    items = []
+    for svc in guest.get("services", []):
+        items.append({
+            "id": svc["id"],
+            "label": svc["label"],
+            "desc": svc.get("desc", ""),
+            "icon": svc.get("icon", "box"),
+            "route": svc["route"],
+            "path": svc.get("path"),
+            "port": svc.get("port"),
+            "openPath": svc.get("open_path", "/"),
+            "sharedAccount": bool(svc.get("shared_account")),
+        })
+    # Le dossier partage n'est pas un service proxifie mais un file_server :
+    # il n'a ni port ni upstream, d'ou cette carte ajoutee ici plutot que
+    # declaree dans services.json, ou elle aurait exige des champs vides.
+    if env.get("GUEST_SHARE_DIR"):
+        items.append({
+            "id": "guest-partage",
+            "label": "Fichiers partagés",
+            "desc": "Cours, énoncés et modèles déposés par l'enseignant. "
+                    "En lecture seule, téléchargeables.",
+            "icon": "folder",
+            "route": "path",
+            "path": "/guest/partage",
+            "openPath": "/",
+        })
+
+    return {
+        "services": items,
+        "ttl": int(env.get("GUEST_TTL", 7200)),
+        "latexEmail": env.get("GUEST_LATEX_EMAIL", ""),
+        # Compte partage : le mot de passe doit etre visible des invites,
+        # sinon LaTeX Lab leur reste inutilisable. La page est deja derriere
+        # le code de seance.
+        "latexPassword": env.get("GUEST_LATEX_PASSWORD", ""),
+    }
 
 
 def web_manifest(env: dict[str, str], cfg: dict) -> dict:
@@ -257,11 +548,14 @@ def main() -> int:
     env = load_env(env_path)
     cfg = json.loads(svc_path.read_text())
     services = flatten(cfg)
+    guest = cfg.get("guest", {})
+
+    check_ports(env, services, guest)
 
     out = ROOT / "build"
     out.mkdir(exist_ok=True)
 
-    (out / "Caddyfile").write_text(caddyfile(env, services))
+    (out / "Caddyfile").write_text(caddyfile(env, services, guest))
     (out / "services.web.json").write_text(
         json.dumps(web_manifest(env, cfg), indent=2, ensure_ascii=False)
     )
@@ -275,8 +569,39 @@ def main() -> int:
     )
     os.chmod(out / "serve.sh", 0o755)
 
+    written = ["Caddyfile", "services.web.json", "health.targets.json", "serve.sh"]
+
+    if guest_enabled(env) and guest:
+        (out / "guest.web.json").write_text(
+            json.dumps(guest_manifest(env, guest), indent=2, ensure_ascii=False)
+        )
+        on, off = funnel_commands(env, guest)
+        (out / "funnel.sh").write_text(
+            "#!/usr/bin/env bash\n"
+            "# GENERE PAR sampana — ouvre ou ferme l'acces PUBLIC au mode invite.\n"
+            "#\n"
+            "# `funnel.sh on` publie le portail invite sur Internet. L'URL .ts.net\n"
+            "# est listee dans les journaux de Certificate Transparency : elle sera\n"
+            "# scannee. Ne la laisse ouverte que pendant les seances.\n"
+            "set -euo pipefail\n\n"
+            'case "${1:-}" in\n'
+            "  on)\n    " + "\n    ".join(on) + "\n"
+            '    echo "Mode invite PUBLIC. Ferme-le apres le cours : $0 off"\n'
+            "    ;;\n"
+            "  off)\n    " + "\n    ".join(off) + "\n"
+            '    echo "Funnel ferme. Le mode invite reste joignable sur le LAN."\n'
+            "    ;;\n"
+            "  *)\n"
+            '    echo "Usage : $0 on|off" >&2\n'
+            "    exit 2\n"
+            "    ;;\n"
+            "esac\n"
+        )
+        os.chmod(out / "funnel.sh", 0o755)
+        written += ["guest.web.json", "funnel.sh"]
+
     print(f"Genere dans {out} :")
-    for f in ("Caddyfile", "services.web.json", "health.targets.json", "serve.sh"):
+    for f in written:
         print(f"  - {f}")
     return 0
 

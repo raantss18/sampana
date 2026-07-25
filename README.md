@@ -195,6 +195,84 @@ passer par le mot de passe maître.
 Enfin, `AUTH_ENABLED=0` désactive toute authentification : à ne faire que si
 chaque service porte déjà la sienne.
 
+## Mode invité
+
+Un second monde, étanche du premier : **sans compte, sans persistance**, pour
+les étudiants. Il s'ouvre et se ferme depuis le tableau de bord.
+
+| | Session normale | Session invitée |
+|---|---|---|
+| Entrée | mot de passe maître | prénom, nom, code de séance |
+| Cookie | `sampana_session` | `sampana_guest` |
+| Portée | tous les services, dont un shell | JupyterLab, Lean4Web, LaTeX Lab, assistant IA, dossier partagé |
+| Persistance | complète | aucune |
+
+Les deux cookies portent des **clés de signature distinctes**. C'est ce qui
+empêche un jeton invité d'être accepté comme session normale — donc d'ouvrir
+un shell. Sans cela, connaître le code de séance suffirait : il se dit à voix
+haute.
+
+### Isolation
+
+Le JupyterLab invité tourne **sans aucune interface réseau** (`--network none`).
+Un notebook exécute du code arbitraire, et l'instance peut être publiée sur
+Internet : sans réseau, ce code ne peut ni miner, ni relayer d'attaque depuis
+votre IP, ni joindre vos autres services sur `127.0.0.1` — qui n'ont plus de
+mot de passe propre et comptent sur Sampana en amont.
+
+Conséquence : le conteneur ne peut pas écouter sur un port. Il expose une
+**socket Unix** que Caddy vient chercher. Deux exceptions, étroites et
+explicites :
+
+- une socket vers **Ollama**, pour que `jupyter-ai` fonctionne ;
+- le **dossier partagé**, monté en lecture seule.
+
+### Séance
+
+Chaque ouverture génère un **code et un mot de passe LaTeX Lab neufs**, ainsi
+qu'une nouvelle clé de signature : les jetons de la séance précédente cessent
+d'être honorés. Le code porte la date pour être dictable, mais se termine par
+des chiffres tirés au sort — une valeur calculée depuis la seule date serait
+devinable, or le portail est joignable depuis Internet quand le Funnel est
+ouvert.
+
+La durée se choisit à l'ouverture. Les étudiants sont prévenus **10 puis 5
+minutes** avant la fin, y compris depuis l'intérieur d'un outil.
+
+### Feuille de présence
+
+Caddy interroge le portail avant *chaque* requête d'un invité : la présence,
+l'outil actif et la chronologie s'en déduisent, sans rien installer chez
+l'étudiant. Le tableau de bord affiche qui est connecté, sur quoi, et depuis
+combien de temps. À la fermeture, la séance est archivée pour un suivi
+ultérieur.
+
+La page d'entrée en informe explicitement l'étudiant.
+
+### Hors ligne et partage de connexion
+
+Tout fonctionne **sans Internet** : les pages n'ont aucune dépendance externe,
+les modèles sont locaux. En partage de connexion, le tableau de bord détecte
+les adresses de hotspot et les met en tête des consignes à dicter.
+
+Sans route par défaut, la publication Funnel est **ignorée immédiatement** au
+lieu d'échouer après des dizaines de secondes : la séance s'ouvre en salle,
+seule l'exposition extérieure est impossible.
+
+### Ports
+
+Tailscale Funnel n'accepte que **443, 8443 et 10000**. Le dashboard occupe 443,
+il reste donc 10000 (portail, JupyterLab, Lean4Web, dossier partagé — tous
+routables en sous-chemin) et 8443 (LaTeX Lab, qui exige la racine d'un port).
+L'assistant IA invité n'a plus de créneau : il reste accessible en salle.
+
+### Bouton retour
+
+Aucun des outils n'en propose. Ils sont donc affichés dans une **enveloppe**
+surmontée d'une barre « ← Outils ». Elle est servie **sur le port de l'outil**,
+jamais sur celui du tableau de bord : LaTeX Lab renvoie `X-Frame-Options:
+SAMEORIGIN`, et un port différent est une origine différente.
+
 ## Désinstallation
 
 ```bash
