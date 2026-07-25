@@ -48,6 +48,16 @@ Tmpfs=/home/jovyan/work:size=2g,mode=1777
 Memory=12G
 PodmanArgs=--cpus=8 --pids-limit=800
 
+# Carte graphique, pour les travaux d'IA. Passee par CDI (nvidia-container-
+# toolkit) : cela n'ouvre aucun acces reseau, le conteneur reste sans
+# interface. Seul le peripherique est partage.
+#
+# ATTENTION : la carte n'a que 8 Go de VRAM, et Ollama en retient deja ~3,4.
+# Cette memoire n'est pas cloisonnee entre les etudiants — tous les noyaux
+# puisent dans la meme reserve, et un seul notebook trop gourmand peut faire
+# echouer ceux des autres.
+AddDevice=nvidia.com/gpu=all
+
 # Ollama est joignable sur la boucle locale INTERNE au conteneur, republiee par
 # le relais depuis la socket Unix. Les extensions IA s'y connectent normalement.
 Environment=OLLAMA_BASE_URL=http://127.0.0.1:11434

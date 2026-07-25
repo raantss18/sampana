@@ -330,6 +330,32 @@ La fenêtre est glissante et tenue côté serveur. `forward_auth` ne permet pas
 de renvoyer un cookie rafraîchi au navigateur, un registre d'activité fait
 donc le même travail sans toucher au cookie.
 
+### Carte graphique
+
+Le JupyterLab invité reçoit le GPU de la machine, via CDI
+(`nvidia-container-toolkit`). Cela ne lui ouvre aucun accès réseau : le
+conteneur reste sans interface, seul le périphérique est partagé. Les trois
+noyaux — `python3`, `sage`, `ai` — y ont accès, `torch.cuda` compris.
+
+**La mémoire vidéo n'est pas cloisonnée.** Sur cette machine, 8 Go au total
+dont ~3,4 déjà retenus par Ollama : il reste environ 4 Go pour toute la
+classe, puisés dans la même réserve. Un seul notebook trop gourmand fera
+échouer ceux des autres avec une erreur de mémoire.
+
+Deux leviers si la contention gêne :
+
+```bash
+# Libère la VRAM d'Ollama après 5 min d'inactivité (défaut : jamais)
+systemctl --user edit ollama   # Environment=OLLAMA_KEEP_ALIVE=5m
+```
+
+et, côté étudiants, des lots réduits plus `torch.cuda.empty_cache()` entre
+deux expériences.
+
+Sans GPU ou sans `nvidia-container-toolkit`, `install.sh` retire la
+déclaration du conteneur : le mode invité fonctionne alors sans accélération,
+au lieu de refuser de démarrer sur un périphérique absent.
+
 ### Feuille de présence
 
 Caddy interroge le portail avant *chaque* requête d'un invité : la présence,

@@ -334,6 +334,22 @@ EOF
         c_warn "socat absent : pas d'assistant IA dans le JupyterLab invite"
     fi
 
+    # Carte graphique. Sans nvidia-container-toolkit, le Quadlet reclame un
+    # peripherique CDI qui n'existe pas et le conteneur refuse de demarrer :
+    # on retire alors la ligne plutot que de casser tout le mode invite.
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        if ! command -v nvidia-ctk >/dev/null 2>&1; then
+            c_warn "GPU detecte mais nvidia-container-toolkit absent."
+            c_warn "  Arch : sudo pacman -S nvidia-container-toolkit"
+        elif [ ! -f /etc/cdi/nvidia.yaml ]; then
+            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml >/dev/null 2>&1 \
+                && c_ok "Peripheriques CDI generes" \
+                || c_warn "Generation CDI echouee — le GPU restera hors du conteneur"
+        else
+            c_ok "GPU disponible pour le JupyterLab invite"
+        fi
+    fi
+
     # Conteneurs (Quadlet). L'image invitee embarque jupyter-ai : elle doit etre
     # construite ici, le conteneur ne pouvant rien installer sans reseau.
     if command -v podman >/dev/null 2>&1; then
@@ -342,6 +358,12 @@ EOF
             [ -f "$q" ] || continue
             sed "s|@SHARE@|$SHARE|g; s|@HOME@|$HOME|g" "$q" \
                 > "$HOME/.config/containers/systemd/$(basename "$q")"
+            # Pas de GPU utilisable : on retire la declaration, sans quoi le
+            # conteneur echouerait au demarrage sur un peripherique absent.
+            if [ ! -f /etc/cdi/nvidia.yaml ]; then
+                sed -i '/^AddDevice=nvidia/d' \
+                    "$HOME/.config/containers/systemd/$(basename "$q")"
+            fi
         done
         if ! podman image exists localhost/sampana/guest-jupyter:latest; then
             c_info "Construction de l'image JupyterLab invitee (plusieurs minutes)…"
