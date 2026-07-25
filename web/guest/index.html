@@ -119,6 +119,10 @@
     main { padding: 16px 14px 32px; }
     .grille { grid-template-columns: 1fr; }
   }
+  .outil.indispo {
+    opacity: .55; cursor: not-allowed; box-shadow: none;
+    border-style: dashed;
+  }
   @media (prefers-reduced-motion: reduce) {
     a.outil { transition: none; }
   }
@@ -249,6 +253,16 @@ fetch('guest.web.json')
                         `&b=${encodeURIComponent(retour)}`;
 
     grille.innerHTML = cfg.services.map(s => {
+      // Tailscale ne publie que 443, 8443 et 10000. Un outil sur un autre port
+      // est joignable en salle, jamais depuis Internet : on le signale au lieu
+      // de fabriquer un lien qui ne mène nulle part.
+      if (viaFunnel && s.funnelOk === false) {
+        return `<div class="outil indispo">
+          <span class="ico">${ICONES[s.icon] || '📦'}</span>
+          <span class="txt"><b>${s.label}</b>
+            <span>Disponible depuis le réseau de la salle uniquement.</span></span>
+        </div>`;
+      }
       const port = viaFunnel ? (s.funnelPort || s.port) : s.port;
       // Une page « directe » porte déjà son propre bandeau de retour :
       // l'enveloppe ferait doublon.

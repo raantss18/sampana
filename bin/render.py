@@ -522,6 +522,11 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
             # Port publie par Funnel, quand il differe de l'ecoute locale.
             # La page invitee choisit selon l'origine par laquelle on la joint.
             "funnelPort": svc.get("funnel_port", svc.get("port")),
+            # Tailscale ne publie que 443, 8443 et 10000. Un service sur un
+            # autre port reste joignable en salle, jamais depuis Internet —
+            # l'interface doit le dire plutot que de fabriquer un lien mort.
+            "funnelOk": svc.get("route") != "port"
+                        or svc.get("funnel_port", svc.get("port")) in (443, 8443, 10000),
             # Page servie directement par Caddy : elle a son propre bandeau,
             # l'enveloppe ferait doublon.
             "direct": bool(svc.get("direct")),
@@ -544,6 +549,7 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
             "path": "/guest/fichiers.html",
             "openPath": "/",
             "direct": True,
+            "funnelOk": True,
         })
 
     return {

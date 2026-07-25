@@ -52,6 +52,29 @@
           "port": 10444,
           "upstream": "127.0.0.1:8890",
           "embed": true
+        },
+        {
+          "id": "tableau",
+          "label": "Tableau blanc",
+          "desc": "Schémas et organisation d'idées (Excalidraw).",
+          "icon": "box",
+          "route": "port",
+          "port": 10005,
+          "upstream": "127.0.0.1:10003",
+          "embed": true,
+          "_comment": "Meme conteneur que le tableau blanc invite, sur un port protege par le mot de passe maitre."
+        },
+        {
+          "id": "obsidian",
+          "label": "Obsidian",
+          "desc": "Votre coffre de notes, avec Excalidraw. Bureau distant.",
+          "icon": "document",
+          "route": "port",
+          "port": 10007,
+          "upstream": "127.0.0.1:10006",
+          "embed": false,
+          "embed_reason": "Bureau distant KasmVNC : le clavier et le presse-papier se comportent mal dans un cadre",
+          "_comment": "RESERVE A L'ENSEIGNANT : le bureau est unique, deux personnes partageraient le meme curseur."
         }
       ]
     },

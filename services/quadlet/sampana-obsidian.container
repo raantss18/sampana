@@ -1,0 +1,37 @@
+[Unit]
+Description=Sampana — Obsidian (bureau distant)
+After=network-online.target
+
+[Container]
+# Obsidian n'a pas de version web : c'est une application de bureau Electron.
+# Cette image la fait tourner dans un bureau minimal, diffuse au navigateur.
+# C'est donc le VRAI Obsidian, avec ses greffons — Excalidraw compris — et non
+# une imitation qui n'en lirait que les fichiers.
+Image=lscr.io/linuxserver/obsidian:latest
+
+# RESERVE A L'ENSEIGNANT. Le bureau est unique : deux personnes connectees
+# partagent le meme curseur et se disputent le clavier. Inutilisable pour une
+# classe, parfait pour un poste unique.
+PublishPort=127.0.0.1:10006:3000
+
+Environment=PUID=1000
+Environment=PGID=1000
+Environment=TZ=Indian/Antananarivo
+# Sans mot de passe propre : l'acces passe par Caddy, qui applique deja le mot
+# de passe maitre. En ajouter un second ferait double emploi.
+
+# Le coffre existant, monte tel quel : ce sont les memes fichiers que
+# l'application de bureau, pas une copie qui divergerait.
+Volume=%h/Obsidian:/vaults/Obsidian:rw
+Volume=sampana-obsidian-config:/config
+
+# Electron a besoin d'une memoire partagee genereuse ; la valeur par defaut de
+# 64 Mo fait planter le rendu des que la fenetre grandit.
+PodmanArgs=--shm-size=1g --security-opt seccomp=unconfined
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
