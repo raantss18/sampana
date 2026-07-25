@@ -12,6 +12,8 @@ function urlService(svc, hote) {
   if (svc.route === 'path') return svc.path + '/';
   const tailnet = hote.endsWith('.ts.net');
   const port = tailnet ? svc.port : svc.localPort;
-  const proto = tailnet ? 'https' : 'http';
+  // Hors tailnet on parle en clair, sauf aux services qui exigent un contexte
+  // securise : le navigateur leur refuserait sinon les API dont ils vivent.
+  const proto = tailnet || svc.localSecure ? 'https' : 'http';
   return `${proto}://${hote}:${port}${svc.openPath}`;
 }

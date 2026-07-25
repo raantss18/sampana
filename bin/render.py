@@ -326,6 +326,14 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         "\t# L'API admin (127.0.0.1:2019) doit rester active : `systemctl reload",
         "\t# caddy` passe par elle. Avec `admin off`, tout reload echoue.",
         "\tauto_https off",
+        "",
+        "\t# Un bloc adresse par le seul port devient la politique de",
+        "\t# certificats par defaut. Sans cette ligne, celui qui demande un",
+        "\t# certificat entre en conflit avec ceux qui n'en veulent pas et",
+        "\t# Caddy refuse de demarrer — panne totale. On declare donc la meme",
+        "\t# autorite globalement. Sans effet ailleurs : `auto_https off`",
+        "\t# empeche tout autre bloc de reclamer un certificat.",
+        "\tcert_issuer internal",
         "}",
         "",
         "# Pas de bloc `http://127.0.0.1:PORT` : Caddy filtrerait alors sur le Host,",
@@ -429,6 +437,26 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
             f"# {svc['label']} — ecoute sur {locaux[svc['id']]}, publie sur {svc['port']}",
             f":{locaux[svc['id']]} {{",
             f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
+        ]
+
+        # Certains services exigent un « contexte securise » : sans HTTPS le
+        # navigateur leur refuse des API entieres et l'outil ne demarre pas.
+        # Via Tailscale le TLS est deja assure ; en local il faut le fournir.
+        #
+        # `on_demand` plutot qu'une liste d'adresses : l'IP de la machine change
+        # (reseau de la salle, partage de connexion), et un certificat fige
+        # deviendrait invalide au premier changement. Contrepartie assumee — un
+        # tiers sur le meme reseau peut faire emettre des certificats a volonte.
+        # L'autorite est locale, donc sans quota ni conséquence exterieure ; le
+        # cout se limite a du stockage.
+        if svc.get("secure_context"):
+            lines += [
+                "\ttls internal {",
+                "\t\ton_demand",
+                "\t}",
+            ]
+
+        lines += [
             # Sans compression, la feuille de style de LaTeX Lab pesait 872 ko
             # sur le reseau. Les services a port dedie en etaient prives : seuls
             # les deux sites principaux la declaraient.
@@ -503,9 +531,13 @@ def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
         # non vers le backend : c'est Caddy qui applique le mot de passe maitre.
         # Publie sur son port habituel, mais pointe vers l'ecoute locale de
         # Caddy : les deux ne peuvent pas etre le meme numero.
+        # `https+insecure` : l'amont presente un certificat de l'autorite locale,
+        # que tailscaled n'a aucune raison de connaitre. La liaison reste dans
+        # la machine, et le TLS presente au client est celui de Tailscale.
+        schema = "https+insecure" if svc.get("secure_context") else "http"
         cmds.append(
             f"tailscale serve --bg --https={svc['port']} "
-            f"http://127.0.0.1:{locaux[svc['id']]}"
+            f"{schema}://127.0.0.1:{locaux[svc['id']]}"
         )
     return cmds
 
@@ -670,6 +702,9 @@ def web_manifest(env: dict[str, str], cfg: dict) -> dict:
                     # Port d'ecoute locale : c'est lui qu'il faut viser hors du
                     # tailnet, ou `tailscale serve` n'intervient pas.
                     "localPort": locaux.get(svc["id"]),
+                    # Sert en HTTPS meme hors tailnet : sans contexte securise
+                    # le navigateur bride des API dont l'outil depend.
+                    "localSecure": bool(svc.get("secure_context")),
                     "openPath": svc.get("open_path", "/"),
                     "embed": bool(svc.get("embed")),
                     "embedReason": svc.get("embed_reason", ""),

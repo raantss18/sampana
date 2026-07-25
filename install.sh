@@ -113,6 +113,38 @@ sudo systemctl enable caddy >/dev/null 2>&1
 sudo systemctl restart caddy
 c_ok "Caddy valide, actif et active au demarrage"
 
+# Autorite de certification locale.
+#
+# Certains outils exigent un «contexte securise» : sans HTTPS le navigateur leur
+# refuse des API entieres et ils ne demarrent pas du tout. Via Tailscale le TLS
+# est deja assure, mais en salle — reseau local, partage de connexion — c'est
+# Caddy qui signe, avec une autorite qu'aucun magasin ne connait encore.
+#
+# On l'installe donc ici : dans le magasin systeme, puis dans ceux des
+# navigateurs, qui ont chacun le leur et ignorent celui du systeme. Sans cette
+# etape, l'outil s'ouvre sur un avertissement de securite a chaque visite.
+CA_ROOT=/var/lib/caddy/pki/authorities/local/root.crt
+if sudo test -f "$CA_ROOT"; then
+    sudo install -m 644 "$CA_ROOT" \
+        /etc/ca-certificates/trust-source/anchors/sampana-caddy-local.crt \
+        2>/dev/null && sudo update-ca-trust 2>/dev/null || true
+
+    if command -v certutil >/dev/null; then
+        sudo cp "$CA_ROOT" "$HOME/sampana-autorite-locale.crt"
+        sudo chown "$(id -un):$(id -gn)" "$HOME/sampana-autorite-locale.crt"
+        for db in "$HOME/.pki/nssdb" "$HOME"/.mozilla/firefox/*.default*; do
+            [ -d "$db" ] || continue
+            certutil -d "sql:$db" -D -n "Sampana Caddy Local" 2>/dev/null || true
+            certutil -d "sql:$db" -A -t "CT,C,C" -n "Sampana Caddy Local" \
+                -i "$HOME/sampana-autorite-locale.crt" 2>/dev/null || true
+        done
+        c_ok "Autorite locale installee (systeme + navigateurs)"
+        c_info "Pour tablette/telephone : ~/sampana-autorite-locale.crt"
+    else
+        c_warn "certutil absent (paquet nss) : les navigateurs avertiront"
+    fi
+fi
+
 # ── 6. Service de sante ─────────────────────────────────────────────────
 step "Service de sante"
 
