@@ -3,7 +3,7 @@ Description=Sampana — Excalidraw (tableau blanc)
 After=network-online.target
 
 [Container]
-Image=docker.io/excalidraw/excalidraw:latest
+Image=localhost/sampana/excalidraw:latest
 
 # Application entierement statique : tout se passe dans le navigateur, les
 # dessins vivent dans son stockage local. Aucun compte, aucune base, et rien

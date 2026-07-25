@@ -62,7 +62,8 @@
           "port": 10005,
           "upstream": "127.0.0.1:10003",
           "embed": true,
-          "_comment": "Meme conteneur que le tableau blanc invite, sur un port protege par le mot de passe maitre."
+          "_comment": "Meme conteneur que le tableau blanc invite, sur un port protege par le mot de passe maitre.",
+          "collab": true
         },
         {
           "id": "obsidian",
@@ -223,7 +224,8 @@
         "route": "port",
         "port": 10004,
         "upstream": "127.0.0.1:10003",
-        "_comment": "Excalidraw. Port hors Funnel : les trois publiables sont pris."
+        "_comment": "Excalidraw. Port hors Funnel : les trois publiables sont pris.",
+        "collab": true
       },
       {
         "id": "guest-notes",

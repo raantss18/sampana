@@ -109,6 +109,28 @@ def upstream_directive(svc: dict) -> str:
     return up
 
 
+def socketio_block(svc: dict, env: dict[str, str]) -> list[str]:
+    """Route /socket.io vers le serveur de collaboration, s'il en faut un.
+
+    Le client se connecte a la MEME ORIGINE que la page. Lui donner une adresse
+    absolue imposerait un port supplementaire, or Tailscale n'en publie que
+    trois et ils sont tous pris : la collaboration serait morte des qu'on sort
+    de la salle. En passant par le meme port, elle suit l'outil partout.
+    """
+    salle = env.get("COLLAB_UPSTREAM", "")
+    if not svc.get("collab") or not salle:
+        return []
+    return [
+        "\t# Collaboration en direct : socket.io relaye vers le serveur de",
+        "\t# salles. Il ne voit que du chiffre — la cle vit dans le fragment",
+        "\t# de l'URL, jamais transmis au serveur.",
+        "\thandle /socket.io/* {",
+        f"\t\treverse_proxy {salle}",
+        "\t}",
+        "",
+    ]
+
+
 def guest_site(env: dict[str, str], guest: dict) -> list[str]:
     """Site invite : le SEUL de Sampana lie a une adresse routable.
 
@@ -253,6 +275,7 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
             f"\t\treverse_proxy {gate}",
             "\t}",
             "",
+        ] + socketio_block(svc, env) + [
             f"\t@app not path /sampana/* /guest/remaining",
             f"\tforward_auth @app {gate} {{",
             "\t\turi /guest/verify",
@@ -402,6 +425,7 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
                 "\t}",
             ]
         else:
+            lines += socketio_block(svc, env)
             lines.append(f"\treverse_proxy {svc['upstream']}")
         lines += ["}", ""]
 

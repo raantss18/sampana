@@ -1,0 +1,20 @@
+[Unit]
+Description=Sampana — serveur de collaboration Excalidraw
+After=network-online.target
+
+[Container]
+# Serveur socket.io qui relaie les traits entre participants. Il ne voit
+# QUE du chiffre : la cle de la salle vit dans le fragment de l'URL, jamais
+# transmis au serveur. Il n'a donc rien a stocker et rien a proteger.
+Image=docker.io/excalidraw/excalidraw-room:latest
+
+# Port 80 dans le conteneur, qu'un conteneur sans privileges ne peut pas lier
+# directement — d'ou la publication sur un port haut.
+PublishPort=127.0.0.1:10008:80
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
