@@ -68,12 +68,42 @@
 // necessaire : LaTeX Lab renvoie `X-Frame-Options: SAMEORIGIN`, et un port
 // different compte comme une origine differente. Encadre depuis le port du
 // tableau de bord, il n'afficherait qu'un cadre blanc.
-const params = new URLSearchParams(location.search);
-const url    = params.get('u') || '/';
-const label  = params.get('l') || 'Outil';
-const back   = params.get('b') || '/guest/';
+// Les parametres viennent de l'URL, donc de n'importe qui : un lien pouvait
+// etre forge et envoye a un etudiant. Ils sont donc VALIDES avant usage.
+//
+//   `b` finissait dans un href : `?b=javascript:...` executait du script dans
+//   l'origine du portail des le clic sur « Retour ».
+//   `u` finissait dans un iframe : `?u=https://site-attaquant` affichait une
+//   page tierce entouree du bandeau Sampana — un cadre de hameconnage credible.
+//
+// Seuls des chemins de CETTE origine sont acceptes. `//hote` est rejete : c'est
+// une URL protocole-relative, qui pointe ailleurs malgre son allure de chemin.
+// Un chemin de cette origine. `//hote` est rejete : c'est une URL
+// protocole-relative, qui pointe ailleurs malgre son allure de chemin.
+const chemin = (v, repli) =>
+  (typeof v === 'string' && v.startsWith('/') && !v.startsWith('//')) ? v : repli;
 
-document.getElementById('label').textContent = label;
+// Le lien retour vise parfois un AUTRE PORT : l'enveloppe de LaTeX Lab est
+// servie sur 8444, le tableau de bord vit sur 8081. On accepte donc une URL
+// absolue, a condition qu'elle designe le meme hote — elle ne peut alors
+// ramener que sur cette machine.
+const retourValide = (v, repli) => {
+  const p = chemin(v, null);
+  if (p) return p;
+  try {
+    const u = new URL(v, location.href);
+    if ((u.protocol === 'http:' || u.protocol === 'https:')
+        && u.hostname === location.hostname) return u.href;
+  } catch {}
+  return repli;
+};
+
+const params = new URLSearchParams(location.search);
+const url    = chemin(params.get('u'), '/');
+const label  = params.get('l') || 'Outil';
+const back   = retourValide(params.get('b'), '/guest/');
+
+document.getElementById('label').textContent = label;   // textContent : jamais interprete
 document.getElementById('back').href = back;
 document.title = `${label} — Sampana`;
 document.getElementById('frame').src = url;
