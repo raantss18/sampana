@@ -91,6 +91,28 @@ def auth_block(env: dict[str, str], exclude: bool = False) -> list[str]:
     return lines
 
 
+LOCAL_BASE = 11000
+
+
+def local_ports(services: list[dict]) -> dict[str, int]:
+    """Port d'ecoute local de chaque service a port dedie.
+
+    Il DOIT differer du port publie. tailscaled lie deja `100.x:PORT` pour
+    publier le service ; si Caddy tentait `0.0.0.0:PORT`, il echouerait au
+    demarrage et emporterait tout le tableau de bord — panne totale pour une
+    simple collision.
+
+    En ecoutant ailleurs, Caddy peut se lier a toutes les interfaces : les
+    outils deviennent alors joignables depuis le reseau local, comme le
+    tableau de bord lui-meme. Sans cela, chaque carte produit un lien mort
+    des qu'on sort du tailnet.
+    """
+    ports = {}
+    for i, svc in enumerate(s for s in services if s.get("route") == "port"):
+        ports[svc["id"]] = LOCAL_BASE + i
+    return ports
+
+
 def guest_enabled(env: dict[str, str]) -> bool:
     return env.get("GUEST_ENABLED", "0") in ("1", "true", "yes")
 
@@ -293,6 +315,7 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
 def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = None) -> str:
     port = env["CADDY_PORT"]
     web_root = env["WEB_ROOT"]
+    locaux = local_ports(services)
 
     lines = [
         "# GENERE PAR sampana — ne pas editer a la main.",
@@ -397,21 +420,35 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         if svc.get("route") != "port":
             continue
         up_port = int(svc["upstream"].rsplit(":", 1)[1])
-        if up_port == svc["port"]:
+        if up_port == locaux[svc["id"]]:
             raise SystemExit(
                 f"ERREUR : {svc['id']} — le port public ({svc['port']}) est identique "
                 f"au port du backend. Choisis un autre port public."
             )
         lines += [
-            f"# {svc['label']}",
-            f":{svc['port']} {{",
-            "\tbind 127.0.0.1",
+            f"# {svc['label']} — ecoute sur {locaux[svc['id']]}, publie sur {svc['port']}",
+            f":{locaux[svc['id']]} {{",
+            f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
             # Sans compression, la feuille de style de LaTeX Lab pesait 872 ko
             # sur le reseau. Les services a port dedie en etaient prives : seuls
             # les deux sites principaux la declaraient.
             "\tencode zstd gzip",
+            # Le service d'authentification doit repondre ICI aussi.
+            #
+            # Sans session valide, `forward_auth` renvoie vers /auth/login sur
+            # CE port. Si le chemin n'a pas sa propre route, il part vers
+            # l'outil, qui ne connait pas /auth : la reponse est vide. L'outil
+            # parait alors mort, sans le moindre moyen de se connecter — c'est
+            # exactement ce qu'on voit des que la session expire par inactivite.
+            #
+            # Le `handle` seul ne suffit pas : Caddy applique forward_auth
+            # AVANT lui, si bien que /auth/login se protegerait elle-meme. D'ou
+            # `exclude=True`, qui pose le matcher laissant passer ces chemins.
+            "\thandle /auth/* {",
+            f"\t\treverse_proxy 127.0.0.1:{env['AUTH_PORT']}",
+            "\t}",
         ]
-        lines += auth_block(env)
+        lines += auth_block(env, exclude=True)
 
         # `https+insecure` est une syntaxe propre a `tailscale serve`. Cote
         # Caddy, un backend en TLS auto-signe se declare via un bloc transport.
@@ -452,6 +489,7 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
 
 
 def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
+    locaux = local_ports(services)
     cmds = [
         f"tailscale serve --bg --https=443 http://127.0.0.1:{env['CADDY_PORT']}",
         # Le nom d'hote tape sans schema arrive en http : sans cette regle, le
@@ -463,9 +501,11 @@ def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
             continue
         # On pointe vers Caddy (meme numero de port, sur la boucle locale), et
         # non vers le backend : c'est Caddy qui applique le mot de passe maitre.
+        # Publie sur son port habituel, mais pointe vers l'ecoute locale de
+        # Caddy : les deux ne peuvent pas etre le meme numero.
         cmds.append(
             f"tailscale serve --bg --https={svc['port']} "
-            f"http://127.0.0.1:{svc['port']}"
+            f"http://127.0.0.1:{locaux[svc['id']]}"
         )
     return cmds
 
@@ -611,6 +651,7 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
 
 def web_manifest(env: dict[str, str], cfg: dict) -> dict:
     """Manifeste consomme par le dashboard : uniquement ce qui est affichable."""
+    locaux = local_ports(flatten(cfg))
     groups = []
     for group in cfg.get("groups", []):
         items = []
@@ -626,6 +667,9 @@ def web_manifest(env: dict[str, str], cfg: dict) -> dict:
                     "route": svc["route"],
                     "path": svc.get("path"),
                     "port": svc.get("port"),
+                    # Port d'ecoute locale : c'est lui qu'il faut viser hors du
+                    # tailnet, ou `tailscale serve` n'intervient pas.
+                    "localPort": locaux.get(svc["id"]),
                     "openPath": svc.get("open_path", "/"),
                     "embed": bool(svc.get("embed")),
                     "embedReason": svc.get("embed_reason", ""),

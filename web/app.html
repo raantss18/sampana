@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sampana</title>
 <link rel="stylesheet" href="/sampana.css" />
+<script src="/sampana.js"></script>
 <link rel="icon" href="/logo.svg" type="image/svg+xml" />
 <style>
   body { display: flex; flex-direction: column; overflow: hidden; }
@@ -121,10 +122,7 @@
     return;
   }
 
-  const url =
-    svc.route === 'path'
-      ? svc.path + '/'
-      : `https://${location.hostname}:${svc.port}${svc.openPath}`;
+  const url = urlService(svc, location.hostname);
 
   document.title = `${svc.label} — Sampana`;
   $('#name').textContent = svc.label;
