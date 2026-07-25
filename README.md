@@ -158,6 +158,12 @@ Trois chemins, tous derrière le mot de passe maître :
 | Réseau local | `http://<ip-locale>:8088` | **non** |
 | Partage de connexion | `http://10.42.0.1:8088` | **non** |
 
+Le port 80 redirige vers HTTPS : taper le nom d'hôte sans schéma fonctionne.
+Sans cette règle, le navigateur complète en `http://`, que Tailscale ne sert
+pas, et affiche un refus de connexion sans explication. Le servir *en clair*
+serait pire : le cookie de session est marqué `Secure` pour ce nom, il ne
+serait jamais conservé et la connexion échouerait en boucle.
+
 Les deux dernières fonctionnent **sans Tailscale et sans Internet** : Caddy
 écoute sur toutes les interfaces (`CADDY_BIND=0.0.0.0`) et le mot de passe
 reste exigé. C'est le mode à utiliser en salle.

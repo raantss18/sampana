@@ -429,6 +429,22 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
             lines.append(f"\treverse_proxy {svc['upstream']}")
         lines += ["}", ""]
 
+    # Port 80 : redirection vers HTTPS, rien de plus.
+    #
+    # Sans lui, taper le nom d'hote sans schema donne un ERR_CONNECTION_REFUSED
+    # brut — le navigateur complete en http://, que Tailscale ne sert pas. Et
+    # SERVIR le tableau de bord en clair ici serait pire : le cookie de session
+    # est marque Secure pour ce nom, il ne serait donc jamais conserve, et la
+    # connexion echouerait en boucle sans expliquer pourquoi.
+    lines += [
+        "# Redirection HTTP vers HTTPS pour le nom du tailnet.",
+        f":{env.get('REDIR_PORT', '8087')} {{",
+        "\tbind 127.0.0.1",
+        f"\tredir https://{env['SAMPANA_HOST']}{{uri}} permanent",
+        "}",
+        "",
+    ]
+
     if guest and guest_enabled(env):
         lines += guest_site(env, guest)
 
@@ -436,7 +452,12 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
 
 
 def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
-    cmds = [f"tailscale serve --bg --https=443 http://127.0.0.1:{env['CADDY_PORT']}"]
+    cmds = [
+        f"tailscale serve --bg --https=443 http://127.0.0.1:{env['CADDY_PORT']}",
+        # Le nom d'hote tape sans schema arrive en http : sans cette regle, le
+        # navigateur affiche un refus de connexion au lieu de basculer en TLS.
+        f"tailscale serve --bg --http=80 http://127.0.0.1:{env.get('REDIR_PORT', '8087')}",
+    ]
     for svc in services:
         if svc.get("route") != "port":
             continue
