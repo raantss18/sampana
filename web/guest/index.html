@@ -191,8 +191,15 @@ fetch('guest.web.json')
       const q = (u, l) => `u=${encodeURIComponent(u)}&l=${encodeURIComponent(l)}` +
                           `&b=${encodeURIComponent(retour)}`;
 
+      // Le port diffère selon le chemin d'accès : Tailscale publie 8443 tandis
+      // que Caddy écoute localement sur 8444. Les deux DOIVENT différer, sinon
+      // tailscaled tient 100.x:8443 et Caddy ne peut plus lier 0.0.0.0:8443 —
+      // il refuserait alors de démarrer, emportant tout le reste.
+      const viaFunnel = location.protocol === 'https:' && location.hostname.endsWith('.ts.net');
+      const port = viaFunnel ? (s.funnelPort || s.port) : s.port;
+
       a.href = s.route === 'port'
-        ? `${location.protocol}//${location.hostname}:${s.port}/sampana/tool.html?` +
+        ? `${location.protocol}//${location.hostname}:${port}/sampana/tool.html?` +
           q(s.openPath || '/', s.label)
         : `/guest/tool.html?` + q(`${s.path}/`, s.label);
 
