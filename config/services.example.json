@@ -96,7 +96,7 @@
           "desc": "API d'assistance LaTeX, Python et Sage.",
           "icon": "sparkle",
           "route": "port",
-          "port": 8443,
+          "port": 10447,
           "upstream": "127.0.0.1:8420",
           "embed": true,
           "open_path": "/docs",
@@ -132,5 +132,64 @@
         }
       ]
     }
-  ]
+  ],
+  "_guest_comment": [
+    "Services offerts en mode invite : sans compte, sans persistance, et",
+    "joignables hors tailnet. Ils sont volontairement declares a part des",
+    "'groups' : un service normal est protege par le mot de passe maitre,",
+    "un service invite ne l'est pas. Melanger les deux listes rendrait un",
+    "oubli de configuration silencieux et dangereux.",
+    "",
+    "route 'path' -> sous-chemin du site invite (partage le port du portail).",
+    "route 'port' -> port dedie, pour ce qui exige la racine (LaTeX Lab).",
+    "strip        -> retire le prefixe avant transmission (Lean4Web l'impose :",
+    "                son serveur filtre les websockets sur ^/websocket/...$)."
+  ],
+  "guest": {
+    "services": [
+      {
+        "id": "guest-jupyter",
+        "label": "JupyterLab",
+        "desc": "Notebooks Python : numpy, scipy, pandas, matplotlib, sympy.",
+        "icon": "notebook",
+        "route": "path",
+        "path": "/guest/jupyter",
+        "upstream": "unix//run/sampana-guest/jupyter.sock",
+        "trailing_slash": true,
+        "probe": "/guest/jupyter/api/status"
+      },
+      {
+        "id": "guest-lean",
+        "label": "Lean4Web",
+        "desc": "Assistant de preuve Lean 4, exécuté en bac à sable.",
+        "icon": "sigma",
+        "route": "path",
+        "path": "/guest/lean",
+        "upstream": "127.0.0.1:8890",
+        "strip": true,
+        "trailing_slash": true
+      },
+      {
+        "id": "guest-latex",
+        "label": "LaTeX Lab",
+        "desc": "Éditeur LaTeX. Compte partagé, projets effacés chaque nuit.",
+        "icon": "document",
+        "route": "port",
+        "port": 8443,
+        "upstream": "127.0.0.1:80",
+        "open_path": "/project",
+        "shared_account": true
+      },
+      {
+        "id": "guest-webui",
+        "label": "Assistant IA",
+        "desc": "Chat avec les modèles locaux. Aucune conversation n'est conservée.",
+        "icon": "chat",
+        "route": "port",
+        "port": 10002,
+        "upstream": "127.0.0.1:3002",
+        "_comment": "Port hors Funnel : les trois ports publiables (443/8443/10000) sont pris. Accessible en salle uniquement."
+      }
+    ]
+  }
 }
