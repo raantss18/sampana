@@ -155,8 +155,16 @@ Trois chemins, tous derrière le mot de passe maître :
 | Depuis | Adresse | Internet requis |
 |---|---|---|
 | N'importe où | `https://hôte.tailnet.ts.net/` | oui (Tailscale) |
+| Tailscale, sans MagicDNS | `http://<ip-tailscale>:8088` | oui (Tailscale) |
 | Réseau local | `http://<ip-locale>:8088` | **non** |
 | Partage de connexion | `http://10.42.0.1:8088` | **non** |
+
+La deuxième ligne est un **filet de sécurité** : `tailscale serve` filtre sur le
+nom d'hôte, donc l'IP Tailscale nue ne passe pas par lui. Caddy, lui, écoute
+sur toutes les interfaces — cette adresse contourne à la fois `serve` et
+MagicDNS. Utile quand le nom `.ts.net` ne résout plus, par exemple lorsqu'un
+relais Tailscale est injoignable. Le trafic reste chiffré : il circule dans le
+tunnel WireGuard, même sans TLS par-dessus.
 
 Le port 80 redirige vers HTTPS : taper le nom d'hôte sans schéma fonctionne.
 Sans cette règle, le navigateur complète en `http://`, que Tailscale ne sert
