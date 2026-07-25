@@ -22,6 +22,7 @@ import hmac
 import html
 import json
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -210,6 +211,8 @@ class Handler(BaseHTTPRequestHandler):
     conf: dict = {}
     conf_path: str = ""
     host: str = ""
+    _addrs: set[str] = set()
+    _addrs_at: float = 0.0
     protocol_version = "HTTP/1.1"
 
     # ── utilitaires ────────────────────────────────────────────────
@@ -223,6 +226,61 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if body:
             self.wfile.write(body)
+
+    @staticmethod
+    def _machine_addrs() -> set[str]:
+        """Adresses IPv4 de cette machine.
+
+        Sert a valider l'en-tete Host : sans cette liste, accepter un Host
+        quelconque rouvrirait l'open redirect corrige par ailleurs, tandis que
+        le refuser systematiquement renverrait vers le nom .ts.net — injoignable
+        en salle sans Internet.
+        """
+        now = time.time()
+        if now - Handler._addrs_at < 60 and Handler._addrs:
+            return Handler._addrs
+        addrs = set()
+        try:
+            out = subprocess.run(["ip", "-4", "-o", "addr", "show"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) > 3:
+                    addrs.add(parts[3].split("/")[0])
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        Handler._addrs, Handler._addrs_at = addrs, now
+        return addrs
+
+    def _origin(self) -> str:
+        """Origine par laquelle le client nous joint, apres validation.
+
+        Le service renvoyait jusqu'ici vers `https://<nom .ts.net>` en dur. En
+        salle, un enseignant arrivant par l'IP locale etait donc redirige vers
+        une adresse que son poste ne peut pas resoudre sans Tailscale : le mode
+        local etait inutilisable des la premiere redirection.
+
+        On repart donc du Host reellement demande — mais en le validant contre
+        le nom declare et les adresses de la machine, sinon un Host forge
+        suffirait a detourner la redirection post-connexion.
+        """
+        host = (self.headers.get("X-Forwarded-Host")
+                or self.headers.get("Host") or "").strip()
+        nom, _, port = host.partition(":")
+
+        # Le nom du tailnet n'est jamais servi qu'en TLS par `tailscale serve` :
+        # on force https, sans quoi une redirection en http renverrait vers un
+        # port que Caddy n'ecoute pas sur cette interface.
+        if nom == self.host:
+            return f"https://{host}"
+
+        # Adresse locale : HTTP simple, aucun certificat n'etant valable pour
+        # une IP privee.
+        if nom in self._machine_addrs():
+            proto = self.headers.get("X-Forwarded-Proto") or "http"
+            return f"{proto}://{host}"
+        # Host inconnu ou absent : on retombe sur le nom declare.
+        return f"https://{self.host}"
 
     def _cookie(self, token: str, ttl: int) -> str:
         """En-tete Set-Cookie de la session.
@@ -299,16 +357,23 @@ class Handler(BaseHTTPRequestHandler):
         Sans ce filtre, /auth/login?next=https://evil.tld renvoie l'utilisateur
         chez un tiers juste apres qu'il a saisi son mot de passe maitre — et la
         page d'arrivee peut imiter Sampana pour le lui redemander.
+
+        Les adresses de la machine sont acceptees au meme titre que le nom
+        declare : en salle, sans Internet, c'est par elles qu'on arrive.
         """
-        default = f"https://{self.host}/"
+        default = f"{self._origin()}/"
         if not raw:
             return default
         # Chemin relatif : sur. Sauf «//hote», qui est une URL protocole-relative.
         if raw.startswith("/") and not raw.startswith("//"):
             return raw
         parsed = urllib.parse.urlparse(raw)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return default
         # hostname ignore le port : c'est voulu, les services sont sur :10443 etc.
-        if parsed.scheme == "https" and parsed.hostname == self.host:
+        if parsed.hostname == self.host and parsed.scheme == "https":
+            return raw
+        if parsed.hostname in self._machine_addrs():
             return raw
         return default
 
@@ -318,14 +383,12 @@ class Handler(BaseHTTPRequestHandler):
         # mais ces en-tetes proviennent de la requete du client : on les valide
         # au lieu de les recopier (sinon X-Forwarded-Host suffit a detourner la
         # redirection post-connexion).
-        host = self.headers.get("X-Forwarded-Host", self.host)
-        if host.split(":")[0] != self.host:
-            host = self.host
+        origine = self._origin()
         uri = self.headers.get("X-Forwarded-Uri", "/")
         if not uri.startswith("/") or uri.startswith("//"):
             uri = "/"
-        nxt = urllib.parse.quote(f"https://{host}{uri}", safe="")
-        self._send(302, b"", {"Location": f"https://{self.host}/auth/login?next={nxt}"})
+        nxt = urllib.parse.quote(f"{origine}{uri}", safe="")
+        self._send(302, b"", {"Location": f"{origine}/auth/login?next={nxt}"})
 
     # ── routes ─────────────────────────────────────────────────────
 
@@ -351,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/auth/login":
             if self._authed():
-                self._send(302, b"", {"Location": f"https://{self.host}/"})
+                self._send(302, b"", {"Location": f"{self._origin()}/"})
                 return
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             nxt = self._safe_next((q.get("next") or [""])[0])
@@ -363,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
             if tok:
                 forget(tok)
             self._send(302, b"", {
-                "Location": f"https://{self.host}/auth/login",
+                "Location": f"{self._origin()}/auth/login",
                 "Set-Cookie": f"{COOKIE}=; Domain={self.host}; Path=/; Max-Age=0; "
                               "Secure; HttpOnly; SameSite=Lax",
             })
