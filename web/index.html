@@ -145,6 +145,32 @@
     <span class="dot pending" id="gdot"></span>
     <span id="gtxt">Vérification des services…</span>
   </div>
+  <section class="guest-panel" id="guestPanel" hidden>
+    <div class="guest-head">
+      <div>
+        <h2>Mode invité</h2>
+        <p id="guestState">—</p>
+      </div>
+      <label class="guest-dur" id="guestDurWrap">Durée
+        <select id="guestDur">
+          <option value="120">2 h</option>
+          <option value="240" selected>4 h</option>
+          <option value="360">6 h</option>
+          <option value="480">8 h</option>
+        </select>
+      </label>
+      <button class="guest-btn" id="guestToggle" disabled>…</button>
+    </div>
+    <div class="guest-guide" id="guestGuide" hidden></div>
+    <div class="guest-roll" id="guestRoll" hidden>
+      <div class="roll-head">
+        <b>Feuille de présence</b>
+        <span id="rollCount">—</span>
+      </div>
+      <table id="rollTable"><tbody></tbody></table>
+    </div>
+  </section>
+
   <div id="groups"></div>
   <div class="empty" id="empty" hidden>Aucun service ne correspond.</div>
 </main>
@@ -155,6 +181,205 @@
   dans Overleaf et JupyterLab &nbsp;·&nbsp;
   SSH : <code id="ssh">—</code>
 </footer>
+
+<style>
+  .guest-panel {
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); padding: 18px 20px; margin-bottom: 22px;
+  }
+  .guest-panel.on { border-color: #a78bfa; }
+  .guest-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .guest-head > div:first-child { flex: 1 1 240px; }
+  .guest-panel h2 { margin: 0 0 3px; font-size: 15.5px; }
+  .guest-panel p { margin: 0; font-size: 13px; color: var(--dim); }
+  .guest-btn {
+    padding: 8px 18px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--txt); font: inherit; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .guest-btn:hover:not(:disabled) { border-color: #a78bfa; }
+  .guest-btn.on { background: #a78bfa; color: #1a0b3d; border-color: #a78bfa; }
+  .guest-btn:disabled { opacity: .55; cursor: default; }
+  .guest-guide {
+    margin-top: 16px; padding-top: 15px; border-top: 1px dashed var(--line);
+    font-size: 13px; line-height: 1.8;
+  }
+  .guest-guide code {
+    background: var(--bg); padding: 1px 7px; border-radius: 5px;
+    border: 1px solid var(--line); font-size: 12.5px;
+  }
+  .guest-guide .warn { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .guest-dur { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 7px; }
+  .guest-dur select {
+    background: var(--bg); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 13px;
+  }
+  .guest-roll { margin-top: 16px; padding-top: 15px; border-top: 1px dashed var(--line); }
+  .roll-head { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13.5px; margin-bottom: 9px; }
+  .roll-head span { color: var(--dim); font-size: 12.5px; }
+  #rollTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #rollTable td { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  #rollTable td:first-child { font-weight: 600; white-space: nowrap; }
+  #rollTable .tool { color: var(--dim); }
+  #rollTable .state { white-space: nowrap; font-size: 12px; }
+  #rollTable .on  { color: #10b981; }
+  #rollTable .off { color: var(--dim); }
+  #rollTable .path { color: var(--dim); font-size: 11.5px; }
+  .roll-empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
+</style>
+
+<script>
+// ── Pilotage du mode invite ───────────────────────────────────────
+// Le panneau n'apparait que si /guest-admin/state repond : une installation
+// sans mode invite ne montre donc rien plutot qu'un bouton mort.
+(async () => {
+  const panel  = document.getElementById('guestPanel');
+  const label  = document.getElementById('guestState');
+  const btn    = document.getElementById('guestToggle');
+  const guide  = document.getElementById('guestGuide');
+
+  const roll   = document.getElementById('guestRoll');
+  const rollTb = document.querySelector('#rollTable tbody');
+  const rollNb = document.getElementById('rollCount');
+  const durSel = document.getElementById('guestDur');
+  const durWrap= document.getElementById('guestDurWrap');
+  let rollTimer = null;
+
+  const dur = (s) => {
+    const m = Math.round(s / 60);
+    return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`;
+  };
+
+  const refreshRoll = async () => {
+    let rows;
+    try {
+      rows = (await (await fetch('/guest-admin/sessions', { cache: 'no-store' })).json()).sessions;
+    } catch { return; }
+
+    rollNb.textContent = rows.length
+      ? `${rows.length} connecté${rows.length > 1 ? 's' : ''}`
+      : '';
+    if (!rows.length) {
+      rollTb.innerHTML = '<tr><td colspan="3" class="roll-empty">Personne connecté pour l’instant.</td></tr>';
+      return;
+    }
+    rollTb.innerHTML = rows.map(r => {
+      // Le parcours est deja condense cote serveur : une entree par changement
+      // d'outil, pas une par requete.
+      const parcours = r.timeline.map(e => e.tool)
+        .filter((t, i, a) => t !== a[i - 1]).join(' › ');
+      return `<tr>
+        <td>${r.last.toUpperCase()} ${r.first}</td>
+        <td><span class="tool">${r.tool}</span><br><span class="path">${parcours}</span></td>
+        <td class="state ${r.idle ? 'off' : 'on'}">
+          ${r.idle ? `inactif ${dur(r.idleSeconds)}` : '● actif'}<br>
+          <span class="path">présent ${dur(r.durationSeconds)}</span>
+        </td>
+      </tr>`;
+    }).join('');
+  };
+
+  const paint = (st) => {
+    const on = !!st.enabled;
+    panel.hidden = false;
+    panel.classList.toggle('on', on);
+    btn.disabled = false;
+    btn.textContent = on ? 'Désactiver' : 'Activer';
+    btn.classList.toggle('on', on);
+    // La durée se choisit à l'ouverture ; la changer en cours de séance
+    // n'aurait aucun effet sur les jetons déjà distribués.
+    durWrap.style.display = on ? 'none' : '';
+
+    roll.hidden = !on;
+    clearInterval(rollTimer);
+    if (on) { refreshRoll(); rollTimer = setInterval(refreshRoll, 10000); }
+
+    label.textContent = on
+      ? (st.funnel ? 'Ouvert — salle et Internet.' : 'Ouvert — salle uniquement.')
+      : 'Fermé. Aucun accès sans mot de passe.';
+
+    guide.hidden = !on;
+    if (!on) return;
+
+    // Les consignes sont construites depuis l'hote reellement utilise : dictees
+    // a l'oral, elles doivent correspondre a ce que l'etudiant va taper.
+    // Les adresses viennent du serveur : location.hostname donnerait le nom
+    // .ts.net quand le tableau de bord est ouvert par Tailscale, et ce nom ne
+    // sert pas le portail invité. En partage de connexion il y a souvent
+    // plusieurs adresses — on les propose toutes plutôt que d'en deviner une.
+    const ips = st.lanIps && st.lanIps.length ? st.lanIps : (st.lanIp ? [st.lanIp] : []);
+    const pub = st.funnel && st.host ? `https://${st.host}:10000` : null;
+
+    let n = 0;
+    let steps = '';
+    for (const ip of ips) {
+      steps += `${++n}. <code>http://${ip}:${st.guestPort}</code>` +
+               (ip.startsWith('10.42.') || ip.startsWith('10.0.0.')
+                 ? ' <span class="warn" style="display:inline">(partage de connexion)</span>' : '') +
+               `<br>`;
+    }
+    if (pub) steps += `${++n}. À distance : <code>${pub}</code><br>`;
+    steps += `${++n}. Code de séance : <code>${st.code || '—'}</code>`;
+
+    guide.innerHTML =
+      `<b>À dicter aux étudiants :</b><br>${steps}` +
+      (st.latexEmail
+        ? `<br><br><b>Pour LaTeX Lab uniquement</b> (compte partagé) :<br>` +
+          `identifiant <code>${st.latexEmail}</code><br>` +
+          `mot de passe <code>${st.latexPassword || '—'}</code>`
+        : '') +
+      `<div class="warn">Session de ${st.ttlMinutes} min ` +
+      `— les étudiants sont prévenus à 10 puis 5 minutes de la fin. ` +
+      `Rien n'est conservé : leur travail doit être téléchargé avant de fermer l'onglet.` +
+      (st.online === false
+        ? '<br>Aucune connexion Internet : tout fonctionne en local, mais rien n’est publié à distance.'
+        : (pub ? '' : ' Internet non publié : accès depuis la salle seulement.')) +
+      `</div>`;
+  };
+
+  let st;
+  try {
+    st = await (await fetch('/guest-admin/state', { cache: 'no-store' })).json();
+  } catch { return; }  // pas de mode invite installe : on n'affiche rien
+  paint(st);
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const r = await fetch('/guest-admin/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: !st.enabled,
+          ttlMinutes: parseInt(durSel.value, 10),
+        }),
+      });
+      const out = await r.json();
+      st = { ...st, ...out };
+      // Un Funnel refuse laisse le mode ouvert en salle : on le dit au lieu
+      // de laisser croire a une publication Internet qui n'a pas eu lieu.
+      if (st.enabled && out.funnelOk === false) {
+        alert('Ouvert en salle, mais la publication Internet a échoué :\n\n' +
+              (out.message || 'raison inconnue'));
+      }
+      // Le mot de passe LaTeX Lab est renouvele a chaque ouverture. S'il n'a
+      // pas pu l'etre, c'est l'ANCIEN qui reste valable : le dire, sinon on
+      // dicterait un mot de passe qui ne fonctionne pas.
+      if (st.enabled && out.latexPasswordOk === false) {
+        alert('Le mot de passe LaTeX Lab n’a pas pu être renouvelé :\n\n' +
+              (out.latexPasswordMsg || 'raison inconnue') +
+              '\n\nL’ancien mot de passe reste en vigueur.');
+      }
+      paint(st);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Réessayer';
+    }
+  });
+})();
+</script>
 
 <script src="/icons.js"></script>
 <script>
