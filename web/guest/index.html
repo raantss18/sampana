@@ -119,6 +119,23 @@
     main { padding: 16px 14px 32px; }
     .grille { grid-template-columns: 1fr; }
   }
+  .actions { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .act {
+    display: flex; align-items: center; gap: 14px; text-align: left;
+    padding: 16px; min-height: 76px; cursor: pointer; font: inherit; color: inherit;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 15px; box-shadow: var(--ombre);
+  }
+  .act:hover { border-color: var(--guest); }
+  .act.leve { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  #msgTravail { font-size: 13px; margin: 12px 2px 0; min-height: 1.2em; color: var(--dim); }
+  #msgTravail.ok { color: var(--guest); }
+  #msgTravail.err { color: var(--err); }
+
+  /* Un partage doit se distinguer au premier coup d'oeil des outils
+     permanents : bordure pleine, teinte d'accent. */
+  a.outil.partage { border-color: var(--guest); background: var(--guest-doux); }
+
   .outil.indispo {
     opacity: .55; cursor: not-allowed; box-shadow: none;
     border-style: dashed;
@@ -156,8 +173,28 @@
     régulièrement. Téléchargez votre travail avant de fermer la page.<span id="duree"></span>
   </div>
 
+  <section id="zonePartage" hidden>
+    <h2>Partagé par l'enseignant</h2>
+    <div class="grille" id="partages"></div>
+  </section>
+
   <h2>Vos outils</h2>
   <div class="grille" id="grille"></div>
+
+  <h2>Votre travail</h2>
+  <div class="actions">
+    <button class="act" id="rendre" type="button">
+      <span class="ico">📤</span>
+      <span class="txt"><b>Rendre mon travail</b>
+        <span>Envoie un fichier de votre espace à l'enseignant.</span></span>
+    </button>
+    <button class="act" id="aide" type="button">
+      <span class="ico">✋</span>
+      <span class="txt"><b>Demander de l'aide</b>
+        <span>Signale à l'enseignant que vous êtes bloqué.</span></span>
+    </button>
+  </div>
+  <p class="cfg-msg" id="msgTravail"></p>
 </main>
 
 <footer>Session invitée — sans compte et sans sauvegarde.</footer>
@@ -193,6 +230,12 @@
       }
     }
 
+    // ── Éléments partagés par l'enseignant ───────────────────────
+    // Ils arrivent avec le compte à rebours, donc au plus tard 30 s après le
+    // partage. Une notification signale les nouveaux : un bandeau discret
+    // passerait inaperçu chez un étudiant absorbé par son notebook.
+    majPartages(d.shares || []);
+
     const s = d.secondsLeft;
     if (!s) {
       document.title = 'Session terminée — Sampana';
@@ -221,11 +264,88 @@
     if (minutes > seuils[0]) document.title = TITRE;
   };
 
+  const zone     = document.getElementById('zonePartage');
+  const bacPart  = document.getElementById('partages');
+  const connus   = new Set();
+  let   premier  = true;
+
+  const majPartages = (partages) => {
+    zone.hidden = !partages.length;
+    bacPart.innerHTML = partages.map(p => `
+      <a class="outil partage" href="${p.url}" target="_blank" rel="noopener">
+        <span class="ico">${p.live ? '🔴' : '📌'}</span>
+        <span class="txt"><b>${p.label}</b>
+          <span>${p.live ? 'Session en direct — vous pouvez participer'
+                         : 'Partagé par l’enseignant'}</span></span>
+      </a>`).join('');
+
+    for (const p of partages) {
+      if (connus.has(p.id)) continue;
+      connus.add(p.id);
+      // Au premier chargement, on ne notifie pas : l'étudiant qui arrive en
+      // cours de séance serait assailli par tout l'historique.
+      if (premier) continue;
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Sampana — partage', { body: p.label });
+        } catch {}
+      }
+    }
+    premier = false;
+  };
+
   if ('Notification' in window && Notification.permission === 'default') {
     document.addEventListener('click', () => Notification.requestPermission(), { once: true });
   }
   tick();
   setInterval(tick, 30000);
+})();
+
+// ── Rendre son travail, demander de l'aide ───────────────────────
+(() => {
+  const msg = document.getElementById('msgTravail');
+  const dire = (t, ok) => { msg.textContent = t; msg.className = 'cfg-msg ' + (ok ? 'ok' : 'err'); };
+
+  document.getElementById('rendre').addEventListener('click', async () => {
+    // On lit le fichier depuis l'appareil : le portail n'a pas accès à
+    // l'espace de travail du conteneur côté navigateur, et un étudiant sait
+    // toujours télécharger son notebook avant de le rendre.
+    const champ = document.createElement('input');
+    champ.type = 'file';
+    champ.accept = '.ipynb,.py,.md,.txt,.tex,.lean,.csv,.excalidraw';
+    champ.onchange = async () => {
+      const f = champ.files[0];
+      if (!f) return;
+      if (f.size > 20 * 1024 * 1024) { dire('Fichier trop volumineux (20 Mo max).', false); return; }
+      dire('Envoi…', true);
+      try {
+        const r = await fetch('/guest/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: f.name, content: await f.text() }),
+        });
+        const out = await r.json();
+        dire(r.ok ? `Rendu envoyé : ${out.rendu}` : (out.error || 'Envoi refusé.'), r.ok);
+      } catch { dire('Envoi impossible.', false); }
+    };
+    champ.click();
+  });
+
+  const btnAide = document.getElementById('aide');
+  let leve = false;
+  btnAide.addEventListener('click', async () => {
+    leve = !leve;
+    btnAide.classList.toggle('leve', leve);
+    try {
+      await fetch('/guest/help', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raised: leve }),
+      });
+      dire(leve ? 'L’enseignant est prévenu. Appuyez à nouveau pour annuler.'
+                : 'Demande retirée.', true);
+    } catch { dire('Impossible de prévenir l’enseignant.', false); }
+  });
 })();
 
 // ── Cartes ────────────────────────────────────────────────────────

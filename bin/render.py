@@ -129,7 +129,8 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
     # rester joignable meme sans session : il repond alors «0 seconde», ce qui
     # est precisement ce que la page doit afficher quand la seance est close.
     portal = ["/", "/guest/enter", "/guest/logout", "/guest/remaining",
-              "/guest/files", "/guest/open", "/guest/save"]
+              "/guest/files", "/guest/open", "/guest/save",
+              "/guest/submit", "/guest/help"]
     free = portal + ["/logo.svg"]
 
     lines = [

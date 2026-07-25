@@ -239,6 +239,26 @@
 
     <div class="guest-roll">
       <div class="roll-head">
+        <b>Partager avec la classe</b>
+        <span>visible chez les invités sous 30 s</span>
+      </div>
+      <div class="cfg-row" style="margin-bottom:10px">
+        <select id="shareQuoi" style="min-width:190px"></select>
+        <input id="shareNom" placeholder="Titre affiché aux étudiants" style="min-width:220px">
+        <label style="font-size:13px;color:var(--dim);display:flex;gap:6px;align-items:center">
+          <input id="shareLive" type="checkbox"> session en direct
+        </label>
+        <button class="cfg-toggle" id="sharePush" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 19V5"/><path d="M7 10l5-5 5 5"/>
+          </svg>Partager</button>
+      </div>
+      <p class="cfg-msg" id="shareMsg"></p>
+      <table id="shareTable"><tbody></tbody></table>
+    </div>
+
+    <div class="guest-roll">
+      <div class="roll-head">
         <b>Historique des séances</b>
         <button class="cfg-toggle" id="histToggle" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>Afficher</button>
       </div>
@@ -491,8 +511,15 @@
       // d'outil, pas une par requete.
       const parcours = r.timeline.map(e => e.tool)
         .filter((t, i, a) => t !== a[i - 1]).join(' › ');
+      // Main levée d'abord : c'est le seul état qui appelle une réaction
+      // immédiate. Le reste peut attendre la fin de la phrase.
+      const aide = r.aideLevee
+        ? `<span style="color:var(--warn);font-weight:650"> ✋ ${
+             r.aideDepuis < 60 ? 'à l’instant' : Math.round(r.aideDepuis / 60) + ' min'}</span>`
+        : '';
+      const rendus = r.nbRendus ? `<span class="path"> · ${r.nbRendus} rendu(s)</span>` : '';
       return `<tr>
-        <td>${r.last.toUpperCase()} ${r.first}</td>
+        <td>${r.last.toUpperCase()} ${r.first}${aide}${rendus}</td>
         <td><span class="tool">${r.tool}</span><br><span class="path">${parcours}</span></td>
         <td class="state ${r.idle ? 'off' : 'on'}">
           ${r.idle ? `inactif ${dur(r.idleSeconds)}` : '● actif'}<br>
@@ -665,6 +692,60 @@
     await envoyer(entrees);
   });
 
+  // ── Partager avec la classe ─────────────────────────────────────
+  // Les cibles proposées viennent du manifeste invité : partager vers un outil
+  // que les étudiants n'ont pas produirait une carte menant à une porte close.
+  const shareMsg   = document.getElementById('shareMsg');
+  const shareQuoi  = document.getElementById('shareQuoi');
+  const shareTb    = document.querySelector('#shareTable tbody');
+
+  const chargerCibles = async () => {
+    let cfgInv;
+    try { cfgInv = await (await fetch('/guest/guest.web.json', { cache: 'no-store' })).json(); }
+    catch { return; }
+    shareQuoi.innerHTML = cfgInv.services
+      .filter(s => s.route === 'path' || s.direct)   // seuls les chemins du portail
+      .map(s => `<option value="${s.direct ? s.path : s.path + '/'}">${s.label}</option>`)
+      .join('') + `<option value="/guest/fichiers.html">Dossier partagé</option>`;
+  };
+
+  const refreshShares = async () => {
+    let st;
+    try { st = await (await fetch('/guest-admin/state', { cache: 'no-store' })).json(); }
+    catch { return; }
+    const p = st.shares || [];
+    shareTb.innerHTML = p.length
+      ? p.map(x => `<tr>
+          <td>${x.live ? '🔴 ' : '📌 '}${x.label}</td>
+          <td class="path">${x.url}</td>
+          <td class="state" style="text-align:right">
+            <button class="cfg-toggle" data-unshare="${x.id}">${POUBELLE}Retirer</button>
+          </td></tr>`).join('')
+      : '<tr><td colspan="3" class="roll-empty">Rien de partagé pour l’instant.</td></tr>';
+  };
+
+  document.getElementById('sharePush').addEventListener('click', async () => {
+    const label = document.getElementById('shareNom').value.trim();
+    if (!label) { msg(shareMsg, 'Donnez un titre : c’est ce que les étudiants verront.', false); return; }
+    const { ok, out } = await post('/guest-admin/share', {
+      label,
+      url: shareQuoi.value,
+      live: document.getElementById('shareLive').checked,
+      kind: shareQuoi.selectedOptions[0]?.textContent || 'outil',
+    });
+    msg(shareMsg, ok ? 'Partagé — les étudiants le verront sous 30 s.'
+                     : (out.error || 'Partage refusé.'), ok);
+    if (ok) document.getElementById('shareNom').value = '';
+    refreshShares();
+  });
+
+  shareTb.addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-unshare]');
+    if (!b) return;
+    await post('/guest-admin/unshare', { id: b.dataset.unshare });
+    refreshShares();
+  });
+
   // ── Historique des séances ──────────────────────────────────────
   document.getElementById('histToggle').addEventListener('click', async (e) => {
     const box = document.getElementById('histBody');
@@ -797,6 +878,8 @@
   } catch { return; }  // pas de mode invite installe : on n'affiche rien
   paint(st);
   refreshFiles();
+  chargerCibles();
+  refreshShares();
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;

@@ -314,6 +314,12 @@ def session_view(room: str | None = None) -> list[dict]:
         rows = [dict(s, id=sid) for sid, s in _sessions.items()
                 if room is None or s.get("room") == room]
     for r in rows:
+        # Main levee : l'enseignant doit la voir sans ouvrir chaque ligne.
+        # Le drapeau est SEPARE de la duree : une main levee a l'instant donne
+        # une duree nulle, et se lisait donc comme « pas de demande ».
+        r["aideLevee"] = bool(r.get("aide"))
+        r["aideDepuis"] = int(now - r["aide"]) if r.get("aide") else 0
+        r["nbRendus"] = len(r.get("rendus", []))
         r["idle"] = (now - r["lastSeen"]) > IDLE_AFTER
         r["idleSeconds"] = int(now - r["lastSeen"])
         r["durationSeconds"] = int(r["lastSeen"] - r["started"])
@@ -552,6 +558,60 @@ def guest_workspace_tar() -> bytes:
         return r.stdout if r.returncode == 0 else b""
     except (OSError, subprocess.TimeoutExpired):
         return b""
+
+
+# ── partage enseignant → invites ───────────────────────────────────
+# Ce que l'enseignant met a disposition pendant la seance : un notebook, un
+# tableau blanc, un projet LaTeX. La liste vit dans l'etat de seance, donc elle
+# disparait a la fermeture — comme tout le reste du mode invite.
+#
+# Les invites ne la sondent pas separement : elle voyage avec le compte a
+# rebours qu'ils interrogent deja toutes les 30 secondes. Une requete de plus
+# par etudiant et par demi-minute, pour une liste qui change rarement, serait
+# du gaspillage pur.
+
+# `//hote` est rejete explicitement : sous des airs de chemin, c'est une URL
+# protocole-relative qui pointe ailleurs. La banniere de partage porte la
+# marque Sampana — elle rendrait credible n'importe quelle page etrangere.
+RE_SHARE_URL = re.compile(r"^/(?!/)[^\s\"'<>]*$")
+
+
+def add_share(item: dict) -> list[dict]:
+    st = read_state()
+    partages = st.setdefault("shares", [])
+    item["id"] = secrets.token_urlsafe(6)
+    item["at"] = time.time()
+    partages.insert(0, item)
+    del partages[20:]  # au-dela, la liste cesse d'etre lisible
+    write_state(st)
+    return partages
+
+
+def drop_share(sid: str) -> list[dict]:
+    st = read_state()
+    st["shares"] = [p for p in st.get("shares", []) if p.get("id") != sid]
+    write_state(st)
+    return st["shares"]
+
+
+# ── invites → enseignant ───────────────────────────────────────────
+# Deux gestes, volontairement distincts : rendre un travail acheve, et signaler
+# qu'on est bloque. Les confondre obligerait l'enseignant a ouvrir chaque envoi
+# pour savoir lequel appelle une reponse immediate.
+
+def collecte_dir() -> str:
+    """Dossier de rendus, range par seance.
+
+    Hors du dossier partage : les etudiants y ecrivent, alors que le partage
+    leur est justement interdit en ecriture. Les melanger ouvrirait a un
+    etudiant la possibilite de remplacer un enonce.
+    """
+    base = os.path.expanduser("~/sampana-rendus")
+    st = read_state()
+    seance = str(st.get("room") or "hors-seance").replace(":", "h")
+    chemin = os.path.join(base, seance)
+    os.makedirs(chemin, exist_ok=True)
+    return chemin
 
 
 def purge_workspace() -> tuple[bool, str]:
@@ -1124,6 +1184,10 @@ class Handler(BaseHTTPRequestHandler):
                 st = read_state()
                 out["latexEmail"] = self.latex_email
                 out["latexPassword"] = st.get("latexPassword") or self.latex_password
+                # Le partage voyage ici plutot que dans une requete a lui :
+                # une liste qui change rarement ne justifie pas un sondage
+                # supplementaire par etudiant toutes les 30 secondes.
+                out["shares"] = st.get("shares", [])
             self._json(200, out)
 
         elif path in ("/", "/index.html", "/guest/enter"):
@@ -1229,6 +1293,87 @@ class Handler(BaseHTTPRequestHandler):
                 "latexPasswordMsg": st.get("latexPasswordMsg", ""),
                 "ttlMinutes": st.get("ttlMinutes", 120),
             })
+            return
+
+        if path in ("/guest-admin/share", "/guest-admin/unshare"):
+            body = self._body()
+            if path == "/guest-admin/unshare":
+                self._json(200, {"shares": drop_share(str(body.get("id", "")))})
+                return
+
+            label = str(body.get("label", "")).strip()[:80]
+            url = str(body.get("url", "")).strip()
+            # Un chemin de CE portail, rien d'autre. Sans ce filtre, l'element
+            # partage pourrait pointer n'importe ou — la banniere porte la
+            # marque Sampana, elle rendrait credible une page etrangere.
+            if not label or not RE_SHARE_URL.match(url):
+                self._json(400, {"error": "libellé ou adresse invalide"})
+                return
+            self._json(200, {"shares": add_share({
+                "label": label,
+                "url": url,
+                "kind": str(body.get("kind", "outil"))[:24],
+                "live": bool(body.get("live")),
+            })})
+            return
+
+        if path == "/guest/submit":
+            # Rendu de travail. Le nom de l'etudiant vient de SA session, pas
+            # du formulaire : sinon n'importe qui pourrait rendre sous le nom
+            # d'un autre.
+            sid = self._sid()
+            if sid is None:
+                self._json(403, {"error": "session requise"})
+                return
+            with _sessions_lock:
+                s = dict(_sessions.get(sid) or {})
+            if not s:
+                self._json(403, {"error": "session inconnue"})
+                return
+
+            body = self._body()
+            nom = safe_relpath(str(body.get("name", "")))
+            contenu = str(body.get("content", ""))
+            if not nom or "/" in nom:
+                self._json(400, {"error": "nom de fichier invalide"})
+                return
+            if len(contenu.encode()) > 20 * 2**20:
+                self._json(413, {"error": "rendu trop volumineux (20 Mo max)"})
+                return
+
+            etiquette = f"{s['last']}-{s['first']}".replace(" ", "-")[:60]
+            horodatage = time.strftime("%Hh%M")
+            cible = os.path.join(collecte_dir(), f"{etiquette}_{horodatage}_{nom}")
+            try:
+                with open(cible, "w") as fh:
+                    fh.write(contenu)
+            except OSError as e:
+                self._json(500, {"error": str(e)})
+                return
+
+            with _sessions_lock:
+                if sid in _sessions:
+                    _sessions[sid].setdefault("rendus", []).append(
+                        {"nom": nom, "at": time.time()})
+            flush_sessions(force=True)
+            self._json(200, {"rendu": os.path.basename(cible)})
+            return
+
+        if path == "/guest/help":
+            # Main levee. Rien n'est envoye : seul l'etat de la session change,
+            # et la feuille de presence le montre a l'enseignant.
+            sid = self._sid()
+            if sid is None:
+                self._json(403, {"error": "session requise"})
+                return
+            leve = bool(self._body().get("raised", True))
+            with _sessions_lock:
+                if sid not in _sessions:
+                    self._json(403, {"error": "session inconnue"})
+                    return
+                _sessions[sid]["aide"] = time.time() if leve else 0
+            flush_sessions(force=True)
+            self._json(200, {"aide": leve})
             return
 
         if path in ("/guest-admin/tool-add", "/guest-admin/tool-remove",
