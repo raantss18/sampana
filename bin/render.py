@@ -128,7 +128,8 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
     # `/guest/remaining` est servi par le portail, pas par le disque, et doit
     # rester joignable meme sans session : il repond alors «0 seconde», ce qui
     # est precisement ce que la page doit afficher quand la seance est close.
-    portal = ["/", "/guest/enter", "/guest/logout", "/guest/remaining"]
+    portal = ["/", "/guest/enter", "/guest/logout", "/guest/remaining",
+              "/guest/files", "/guest/open"]
     free = portal + ["/logo.svg"]
 
     lines = [
@@ -529,8 +530,11 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
                     "En lecture seule, téléchargeables.",
             "icon": "folder",
             "route": "path",
-            "path": "/guest/partage",
+            # Le navigateur maison remplace le listing brut de Caddy : il
+            # reconnait les types de fichiers et ouvre l'outil correspondant.
+            "path": "/guest/fichiers.html",
             "openPath": "/",
+            "direct": True,
         })
 
     return {

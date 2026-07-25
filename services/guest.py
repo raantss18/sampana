@@ -350,42 +350,80 @@ _share_dir = ""
 MAX_UPLOAD = 200 * 2**20
 
 
-def safe_filename(name: str) -> str:
-    """Nom de fichier accepte, ou chaine vide.
+def safe_relpath(name: str) -> str:
+    """Chemin relatif accepte sous le dossier partage, ou chaine vide.
 
-    On ne garde que le nom de base : un `name` valant «../../etc/passwd»
-    ecrirait hors du dossier partage. Les fichiers caches sont refuses, ils
-    n'ont rien a faire dans un depot de cours et masqueraient leur presence.
+    Les sous-dossiers sont DESORMAIS autorises : deposer un dossier de cours
+    envoie des chemins du type «TP3/donnees/mesures.csv», et tout aplatir
+    melangerait des fichiers homonymes venant de dossiers differents.
+
+    Chaque segment est verifie separement. Un simple `basename` ne suffirait
+    pas — il contiendrait «../../etc/passwd» dans le dossier, mais accepterait
+    la requete en silence, ce qui masque une tentative au lieu de la signaler.
+    Le resultat est ensuite confronte au chemin reel : c'est la seule verifica-
+    tion qui resiste aux liens symboliques deja presents dans le dossier.
     """
-    name = name.strip()
-    # On REFUSE tout nom contenant un separateur plutot que de le tronquer.
-    # `basename` seul suffisait a contenir «../../etc/passwd» dans le dossier,
-    # mais acceptait la requete en silence : mieux vaut la rejeter, un nom
-    # pareil ne vient jamais d'un depot legitime.
-    if not name or "/" in name or "\\" in name or ".." in name:
+    name = name.strip().replace("\\", "/")
+    if not name or name.startswith("/"):
         return ""
-    if name.startswith("."):  # fichier cache : masquerait sa presence
+
+    segments = []
+    for seg in name.split("/"):
+        if not seg or seg == ".":
+            continue
+        # `..` et les fichiers caches sont refuses a chaque niveau.
+        if seg == ".." or seg.startswith("."):
+            return ""
+        segments.append(seg[:120])
+
+    if not segments or len(segments) > 12:  # profondeur deraisonnable
         return ""
-    return name[:120]
+    return "/".join(segments)
 
 
-def list_share() -> list[dict]:
-    if not _share_dir:
+def share_target(rel: str) -> str:
+    """Chemin absolu sous le dossier partage, ou chaine vide s'il en sort.
+
+    Deuxieme barriere, apres la validation syntaxique : on resout reellement
+    le chemin et on verifie qu'il reste dans le dossier. Un lien symbolique
+    depose auparavant pourrait sinon servir de passerelle vers l'exterieur.
+    """
+    if not rel or not _share_dir:
+        return ""
+    base = os.path.realpath(_share_dir)
+    cible = os.path.realpath(os.path.join(base, rel))
+    if cible != base and not cible.startswith(base + os.sep):
+        return ""
+    return cible
+
+
+def list_share(rel: str = "") -> list[dict]:
+    """Contenu d'un dossier du partage, un seul niveau a la fois.
+
+    On ne renvoie pas l'arbre entier : un dossier de cours peut contenir des
+    milliers de fichiers, et la page n'en affiche qu'un niveau. La navigation
+    se fait dossier par dossier.
+    """
+    cible = share_target(rel) if rel else (
+        os.path.realpath(_share_dir) if _share_dir else "")
+    if not cible or not os.path.isdir(cible):
         return []
     out = []
     try:
-        for entry in os.scandir(_share_dir):
+        for entry in os.scandir(cible):
             if entry.name.startswith("."):
                 continue
             st = entry.stat()
             out.append({
                 "name": entry.name,
+                "path": f"{rel}/{entry.name}" if rel else entry.name,
                 "size": st.st_size,
                 "modified": st.st_mtime,
                 "dir": entry.is_dir(),
             })
     except OSError:
         return []
+    # Dossiers d'abord, puis ordre alphabetique insensible a la casse.
     out.sort(key=lambda f: (not f["dir"], f["name"].lower()))
     return out
 
@@ -971,7 +1009,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/guest-admin/files":
-            self._json(200, {"files": list_share(), "dir": _share_dir})
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            rel = safe_relpath((q.get("path") or [""])[0]) if q.get("path") else ""
+            self._json(200, {"files": list_share(rel), "dir": _share_dir, "path": rel})
             return
 
         if path == "/guest-admin/sessions":
@@ -1039,6 +1079,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(302, b"", {"Location": f"{self._origin()}/"})
                 return
             self._send(204)
+
+        elif path == "/guest/files":
+            # Navigation dans le dossier partage, cote etudiant. Remplace le
+            # listing brut de Caddy : il ne permettait ni de reconnaitre un
+            # type de fichier, ni de l'ouvrir dans l'outil qui va avec.
+            if self._sid() is None:
+                self._json(403, {"error": "session requise"})
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            rel = safe_relpath((q.get("path") or [""])[0]) if q.get("path") else ""
+            self._json(200, {"path": rel, "files": list_share(rel)})
 
         elif path == "/guest/remaining":
             # Consomme par le tableau de bord invite et par l'enveloppe des
@@ -1230,19 +1281,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(500, {"error": "dossier partage non configure"})
                 return
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            name = safe_filename((q.get("name") or [""])[0])
-            if not name:
-                self._json(400, {"error": "nom de fichier invalide"})
+            rel = safe_relpath((q.get("name") or [""])[0])
+            dest = share_target(rel)
+            if not dest:
+                self._json(400, {"error": "chemin invalide"})
                 return
-            dest = os.path.join(_share_dir, name)
 
             if path == "/guest-admin/delete":
                 try:
-                    os.remove(dest)
+                    if os.path.isdir(dest):
+                        # Un dossier depose se retire entier : le vider fichier
+                        # par fichier depuis l'interface serait interminable.
+                        import shutil
+                        shutil.rmtree(dest)
+                    else:
+                        os.remove(dest)
                 except OSError as e:
                     self._json(400, {"error": str(e)})
                     return
-                self._json(200, {"deleted": name})
+                self._json(200, {"deleted": rel})
                 return
 
             length = int(self.headers.get("Content-Length", 0) or 0)
@@ -1250,6 +1307,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(413, {"error": f"taille invalide (max {MAX_UPLOAD // 2**20} Mo)"})
                 return
             try:
+                # Le depot d'un dossier envoie des chemins imbriques : les
+                # niveaux intermediaires n'existent pas encore.
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 # Ecriture par blocs : un fichier de 200 Mo ne doit pas etre
                 # charge en memoire d'un seul tenant.
                 with open(dest, "wb") as fh:
@@ -1263,7 +1323,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError as e:
                 self._json(500, {"error": str(e)})
                 return
-            self._json(200, {"saved": name, "size": length})
+            self._json(200, {"saved": rel, "size": length})
             return
 
         if path == "/guest-admin/defaults":
@@ -1292,6 +1352,42 @@ class Handler(BaseHTTPRequestHandler):
             st["code"] = code
             write_state(st)
             self._json(200, {"code": code})
+            return
+
+        if path == "/guest/open":
+            # Ouvrir un fichier partage dans l'outil correspondant.
+            #
+            # Le dossier partage est monte en LECTURE SEULE : ouvrir un notebook
+            # directement le rendrait inmodifiable, et l'etudiant perdrait son
+            # travail au premier enregistrement. On en depose donc une COPIE
+            # dans son espace de travail, et c'est elle qu'on ouvre.
+            if self._sid() is None:
+                self._json(403, {"error": "session requise"})
+                return
+            rel = safe_relpath(str(self._body().get("path", "")))
+            src = share_target(rel)
+            if not src or not os.path.isfile(src):
+                self._json(404, {"error": "fichier introuvable"})
+                return
+
+            nom = os.path.basename(rel)
+            try:
+                # La copie se fait DANS le conteneur : son espace de travail est
+                # un tmpfs interne, invisible depuis l'hote.
+                r = subprocess.run(
+                    ["podman", "exec", "systemd-sampana-guest-jupyter",
+                     "cp", "-n", f"/home/jovyan/partage/{rel}",
+                     f"/home/jovyan/work/{nom}"],
+                    capture_output=True, text=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self._json(500, {"error": f"copie impossible : {e}"})
+                return
+            if r.returncode != 0:
+                self._json(500, {"error": (r.stderr or "copie refusee").strip()[:200]})
+                return
+
+            self._json(200, {"copied": nom,
+                             "url": f"/guest/jupyter/lab/tree/{urllib.parse.quote(nom)}"})
             return
 
         if path != "/guest/enter":

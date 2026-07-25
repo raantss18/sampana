@@ -200,7 +200,11 @@
         <span id="shareDir"></span>
       </div>
       <div class="cfg-row" style="margin-bottom:10px">
-        <input id="fileInput" type="file" multiple style="min-width:220px">
+        <input id="fileInput" type="file" multiple style="min-width:200px">
+        <!-- webkitdirectory : seul moyen, dans un navigateur, de deposer un
+             dossier entier. Le chemin relatif de chaque fichier est conserve. -->
+        <input id="dirInput" type="file" webkitdirectory directory
+               style="min-width:200px" title="Déposer un dossier entier">
         <button id="fileSend" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Déposer</button>
       </div>
       <p class="cfg-msg" id="fileMsg"></p>
@@ -459,55 +463,92 @@
   const poids = (n) => n >= 2**20 ? `${(n / 2**20).toFixed(1)} Mo`
                      : n >= 1024  ? `${Math.round(n / 1024)} Ko` : `${n} o`;
 
+  let dossierCourant = '';
+
   const refreshFiles = async () => {
     let data;
     try {
-      data = await (await fetch('/guest-admin/files', { cache: 'no-store' })).json();
+      data = await (await fetch(
+        `/guest-admin/files?path=${encodeURIComponent(dossierCourant)}`,
+        { cache: 'no-store' })).json();
     } catch { return; }
-    document.getElementById('shareDir').textContent = data.dir || '';
+    dossierCourant = data.path || '';
+    document.getElementById('shareDir').textContent =
+      dossierCourant ? `${data.dir}/${dossierCourant}` : (data.dir || '');
+
+    // Remonter d'un niveau : sans ce lien, on entre dans un dossier sans
+    // pouvoir en ressortir.
+    const remonte = dossierCourant
+      ? `<tr><td colspan="3"><button class="cfg-toggle" data-up="1">↑ Dossier parent</button></td></tr>`
+      : '';
+
     if (!data.files.length) {
-      fileTb.innerHTML = '<tr><td class="roll-empty">Aucun fichier partagé.</td></tr>';
+      fileTb.innerHTML = remonte +
+        '<tr><td colspan="3" class="roll-empty">Ce dossier est vide.</td></tr>';
       return;
     }
-    fileTb.innerHTML = data.files.map(f => `<tr>
-      <td>${f.dir ? '📁 ' : ''}${f.name}</td>
+    fileTb.innerHTML = remonte + data.files.map(f => `<tr>
+      <td>${f.dir
+        ? `<button class="cfg-toggle" data-open="${encodeURIComponent(f.path)}">📁 ${f.name}</button>`
+        : f.name}</td>
       <td class="path">${f.dir ? '' : poids(f.size)}</td>
-      <td class="state">${f.dir ? '' :
-        `<button class="cfg-toggle" data-del="${encodeURIComponent(f.name)}">${POUBELLE}Retirer</button>`}</td>
+      <td class="state">
+        <button class="cfg-toggle" data-del="${encodeURIComponent(f.path)}">${POUBELLE}Retirer</button>
+      </td>
     </tr>`).join('');
   };
 
   fileTb.addEventListener('click', async (e) => {
-    const name = e.target.dataset?.del;
-    if (!name) return;
-    if (!confirm(`Retirer « ${decodeURIComponent(name)} » du dossier partagé ?`)) return;
-    await fetch(`/guest-admin/delete?name=${name}`, { method: 'POST' });
+    const b = e.target.closest('button');
+    if (!b) return;
+
+    if (b.dataset.up) {
+      dossierCourant = dossierCourant.split('/').slice(0, -1).join('/');
+      refreshFiles(); return;
+    }
+    if (b.dataset.open) {
+      dossierCourant = decodeURIComponent(b.dataset.open);
+      refreshFiles(); return;
+    }
+
+    const chemin = b.dataset.del;
+    if (!chemin) return;
+    // Un dossier emporte tout son contenu : on le dit AVANT, pas après.
+    if (!confirm(`Retirer « ${decodeURIComponent(chemin)} » ?\n` +
+                 `S'il s'agit d'un dossier, tout son contenu part avec.`)) return;
+    await fetch(`/guest-admin/delete?name=${chemin}`, { method: 'POST' });
     refreshFiles();
   });
 
   document.getElementById('fileSend').addEventListener('click', async () => {
-    const input = document.getElementById('fileInput');
-    if (!input.files.length) { fileMsg.className = 'cfg-msg err';
-                               fileMsg.textContent = 'Choisissez un fichier.'; return; }
-    let ok = 0, erreurs = [];
-    for (const f of input.files) {
+    const fichiers = document.getElementById('fileInput');
+    const dossier  = document.getElementById('dirInput');
+    // Les deux champs sont fusionnés : on peut déposer des fichiers isolés et
+    // un dossier dans le même geste.
+    const tout = [...fichiers.files, ...dossier.files];
+    if (!tout.length) { msg(fileMsg, 'Choisissez un fichier ou un dossier.', false); return; }
+
+    let ok = 0; const erreurs = [];
+    for (const [i, f] of tout.entries()) {
+      // webkitRelativePath porte l'arborescence d'origine ; il est vide pour
+      // un fichier choisi isolément.
+      const chemin = f.webkitRelativePath || f.name;
       fileMsg.className = 'cfg-msg';
-      fileMsg.textContent = `Envoi de ${f.name}…`;
-      // Corps brut plutôt que multipart : le portail n'a pas de parseur
-      // multipart en bibliothèque standard, et un envoi direct suffit.
-      const r = await fetch(`/guest-admin/upload?name=${encodeURIComponent(f.name)}`,
+      fileMsg.textContent = `Envoi ${i + 1}/${tout.length} — ${chemin}`;
+      // Corps brut plutôt que multipart : la bibliothèque standard n'offre plus
+      // de parseur multipart, et un envoi direct suffit.
+      const r = await fetch(`/guest-admin/upload?name=${encodeURIComponent(chemin)}`,
                             { method: 'POST', body: f });
       if (r.ok) ok++;
       else {
         let m = ''; try { m = (await r.json()).error; } catch {}
-        erreurs.push(`${f.name} : ${m || r.status}`);
+        erreurs.push(`${chemin} : ${m || r.status}`);
       }
     }
-    input.value = '';
-    fileMsg.className = 'cfg-msg ' + (erreurs.length ? 'err' : 'ok');
-    fileMsg.textContent = erreurs.length
-      ? `${ok} déposé(s), échec : ${erreurs.join(' · ')}`
-      : `${ok} fichier(s) déposé(s).`;
+    fichiers.value = ''; dossier.value = '';
+    msg(fileMsg, erreurs.length
+      ? `${ok} déposé(s). Échecs : ${erreurs.slice(0, 3).join(' · ')}`
+      : `${ok} fichier(s) déposé(s).`, !erreurs.length);
     refreshFiles();
   });
 

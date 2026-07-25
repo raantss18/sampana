@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fichiers partagés — Sampana</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  :root {
+    --guest: #7c5cff; --bg: #fbfbfd; --surface: #fff; --line: #e6e6ef;
+    --txt: #16161d; --dim: #6b6b7b; --hover: #f3f3f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e0e13; --surface: #16161d; --line: #26262f;
+            --txt: #ececf2; --dim: #9a9aab; --hover: #1e1e27; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: var(--bg); color: var(--txt);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5;
+  }
+  .back {
+    display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+    color: var(--txt); border: 1px solid var(--line); background: var(--bg);
+    border-radius: 9px; padding: 8px 13px; font-size: 13.5px; font-weight: 600;
+  }
+  .back:hover { border-color: var(--guest); }
+  h1 { font-size: 15.5px; margin: 0; font-weight: 650; }
+  .spacer { flex: 1 1 auto; }
+
+  /* Fil d'Ariane : sur un dossier profond, seule la fin compte. Il defile
+     horizontalement plutot que de casser la mise en page sur telephone. */
+  nav {
+    display: flex; gap: 4px; align-items: center; padding: 10px 16px;
+    font-size: 13px; color: var(--dim); overflow-x: auto; white-space: nowrap;
+    border-bottom: 1px solid var(--line);
+  }
+  nav button {
+    background: none; border: 0; color: var(--guest); font: inherit;
+    cursor: pointer; padding: 3px 5px; border-radius: 6px;
+  }
+  nav button:hover { background: var(--hover); }
+  nav span { opacity: .5; }
+
+  main { flex: 1 1 auto; overflow-y: auto; padding: 8px 0 28px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+
+  li {
+    display: flex; align-items: center; gap: 13px;
+    padding: 13px 16px; cursor: pointer; border-bottom: 1px solid var(--line);
+    -webkit-tap-highlight-color: transparent;
+  }
+  li:hover, li:focus-visible { background: var(--hover); outline: none; }
+  li .ico {
+    width: 38px; height: 38px; flex: 0 0 auto; border-radius: 10px;
+    display: grid; place-items: center; font-size: 17px;
+    background: var(--hover);
+  }
+  li .meta { flex: 1 1 auto; min-width: 0; }
+  li .nom {
+    font-size: 14.5px; font-weight: 550;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  li .sous { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  li .action { font-size: 12px; color: var(--guest); font-weight: 600; white-space: nowrap; }
+
+  .vide { padding: 48px 20px; text-align: center; color: var(--dim); font-size: 14px; }
+  .msg {
+    margin: 10px 16px; padding: 11px 14px; border-radius: 10px; font-size: 13.5px;
+    background: color-mix(in srgb, var(--guest) 12%, transparent); color: var(--txt);
+  }
+  .msg.err { background: color-mix(in srgb, #e5484d 14%, transparent); }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" id="retour" href="/guest/">← Outils</a>
+  <h1>Fichiers partagés</h1>
+  <span class="spacer"></span>
+</header>
+
+<nav id="fil"></nav>
+<div id="msg"></div>
+<main><ul id="liste"></ul></main>
+
+<script>
+// Navigateur du dossier partagé, côté étudiant.
+//
+// Il remplace le listing brut de Caddy, qui ne permettait ni de reconnaître un
+// type de fichier ni de l'ouvrir. Ici, un appui ouvre l'outil correspondant.
+//
+// Le dossier est en LECTURE SEULE : ouvrir un notebook directement le rendrait
+// inmodifiable. Le serveur en dépose donc une copie dans l'espace de travail de
+// l'étudiant, et c'est elle qui s'ouvre.
+
+const liste = document.getElementById('liste');
+const fil   = document.getElementById('fil');
+const msg   = document.getElementById('msg');
+let courant = '';
+
+// Chaque extension mène à un outil. Ce qui n'est pas listé se télécharge :
+// mieux vaut un téléchargement franc qu'un outil qui s'ouvre sur une erreur.
+const OUTILS = {
+  ipynb: { ico: '📓', quoi: 'Ouvrir dans JupyterLab', mode: 'jupyter' },
+  py:    { ico: '🐍', quoi: 'Ouvrir dans JupyterLab', mode: 'jupyter' },
+  csv:   { ico: '📊', quoi: 'Ouvrir dans JupyterLab', mode: 'jupyter' },
+  pdf:   { ico: '📕', quoi: 'Lire',                   mode: 'pdf' },
+  lean:  { ico: '∑',  quoi: 'Ouvrir dans Lean4Web',   mode: 'lean' },
+  tex:   { ico: '📄', quoi: 'Télécharger',            mode: 'download' },
+  md:    { ico: '📝', quoi: 'Lire',                   mode: 'texte' },
+  txt:   { ico: '📃', quoi: 'Lire',                   mode: 'texte' },
+  png:   { ico: '🖼️', quoi: 'Voir',                   mode: 'image' },
+  jpg:   { ico: '🖼️', quoi: 'Voir',                   mode: 'image' },
+  jpeg:  { ico: '🖼️', quoi: 'Voir',                   mode: 'image' },
+};
+
+const poids = (n) => n >= 2**20 ? `${(n / 2**20).toFixed(1)} Mo`
+                   : n >= 1024  ? `${Math.round(n / 1024)} ko` : `${n} o`;
+
+const dire = (texte, erreur) => {
+  msg.innerHTML = texte ? `<div class="msg${erreur ? ' err' : ''}">${texte}</div>` : '';
+};
+
+const fichierUrl = (chemin) => `/guest/partage/${chemin.split('/').map(encodeURIComponent).join('/')}`;
+
+const dessinerFil = () => {
+  const parts = courant ? courant.split('/') : [];
+  let acc = '';
+  fil.innerHTML = `<button data-go="">Fichiers partagés</button>`;
+  for (const p of parts) {
+    acc = acc ? `${acc}/${p}` : p;
+    fil.innerHTML += `<span>›</span><button data-go="${encodeURIComponent(acc)}">${p}</button>`;
+  }
+};
+
+const charger = async (chemin) => {
+  dire('');
+  let d;
+  try {
+    const r = await fetch(`/guest/files?path=${encodeURIComponent(chemin)}`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    d = await r.json();
+  } catch {
+    liste.innerHTML = '<li class="vide">Dossier illisible. Votre séance a peut-être expiré.</li>';
+    return;
+  }
+  courant = d.path || '';
+  dessinerFil();
+
+  if (!d.files.length) {
+    liste.innerHTML = '<li class="vide">Ce dossier est vide.</li>';
+    return;
+  }
+  liste.innerHTML = d.files.map(f => {
+    const ext = f.dir ? '' : (f.name.split('.').pop() || '').toLowerCase();
+    const o = f.dir ? { ico: '📁', quoi: 'Ouvrir' } : (OUTILS[ext] || { ico: '📎', quoi: 'Télécharger' });
+    const sous = f.dir ? 'Dossier'
+      : `${poids(f.size)} · ${new Date(f.modified * 1000).toLocaleDateString('fr-FR')}`;
+    return `<li tabindex="0" data-path="${encodeURIComponent(f.path)}"
+                data-dir="${f.dir ? 1 : 0}" data-ext="${ext}">
+      <span class="ico">${o.ico}</span>
+      <span class="meta"><span class="nom">${f.name}</span><span class="sous">${sous}</span></span>
+      <span class="action">${o.quoi}</span>
+    </li>`;
+  }).join('');
+};
+
+const ouvrir = async (chemin, ext) => {
+  const o = OUTILS[ext];
+  const mode = o ? o.mode : 'download';
+
+  // Un onglet séparé : le dossier partagé reste ouvert derrière, l'étudiant y
+  // revient sans repasser par le tableau de bord.
+  if (mode === 'pdf' || mode === 'image' || mode === 'texte' || mode === 'download') {
+    window.open(fichierUrl(chemin), '_blank', 'noopener');
+    return;
+  }
+  if (mode === 'lean') {
+    window.open('/guest/tool.html?u=%2Fguest%2Flean%2F&l=Lean4Web&b=%2Fguest%2Ffichiers.html',
+                '_blank', 'noopener');
+    return;
+  }
+
+  dire('Copie dans votre espace de travail…');
+  try {
+    const r = await fetch('/guest/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: chemin }),
+    });
+    const out = await r.json();
+    if (!r.ok) { dire(out.error || 'Ouverture impossible.', true); return; }
+    dire(`« ${out.copied} » copié dans votre espace de travail.`);
+    window.open(`/guest/tool.html?u=${encodeURIComponent(out.url)}` +
+                `&l=JupyterLab&b=%2Fguest%2Ffichiers.html`, '_blank', 'noopener');
+  } catch {
+    dire('Ouverture impossible.', true);
+  }
+};
+
+liste.addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-path]');
+  if (!li) return;
+  const chemin = decodeURIComponent(li.dataset.path);
+  if (li.dataset.dir === '1') charger(chemin);
+  else ouvrir(chemin, li.dataset.ext);
+});
+// Clavier : un listing doit rester utilisable sans souris.
+liste.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.target.click(); }
+});
+fil.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-go]');
+  if (b) charger(decodeURIComponent(b.dataset.go));
+});
+
+charger('');
+</script>
+
+</body>
+</html>

@@ -198,7 +198,8 @@ fetch('guest.web.json')
       const viaFunnel = location.protocol === 'https:' && location.hostname.endsWith('.ts.net');
       const port = viaFunnel ? (s.funnelPort || s.port) : s.port;
 
-      a.href = s.route === 'port'
+      a.href = s.direct ? s.path
+        : s.route === 'port'
         ? `${location.protocol}//${location.hostname}:${port}/sampana/tool.html?` +
           q(s.openPath || '/', s.label)
         : `/guest/tool.html?` + q(`${s.path}/`, s.label);
