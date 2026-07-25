@@ -1,148 +1,132 @@
+/* Sampana — feuille commune au tableau de bord et au shell de navigation.
+ *
+ * Clair par defaut, sombre selon le systeme, et un attribut `data-theme` sur
+ * la racine pour forcer l'un ou l'autre. Les trois voies definissent les MEMES
+ * variables : aucune regle n'est ecrite deux fois, et une couleur ajoutee ne
+ * peut pas s'oublier dans l'un des themes.
+ */
+
 :root {
-  --accent: #38bdf8;
-  --accent-dim: #0ea5e9;
-  --radius: 12px;
-  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --accent: #7c5cff;
+  --accent-doux: #efeaff;
+  --radius: 14px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  --bg: #0d1117;
-  --surface: #161b22;
-  --surface-2: #1c232c;
-  --line: #2a3441;
-  --txt: #e6edf3;
-  --dim: #8b98a9;
-  --faint: #64707f;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
-}
-
-:root[data-theme='light'] {
-  --bg: #f6f8fa;
+  --bg: #fbfbfd;
   --surface: #ffffff;
-  --surface-2: #f0f3f6;
-  --line: #d8dee4;
-  --txt: #1f2328;
-  --dim: #5b6673;
-  --faint: #8c96a3;
-  --ok: #1a7f37;
-  --warn: #9a6700;
-  --err: #cf222e;
+  --surface-2: #f3f3f8;
+  --line: #e6e6ef;
+  --txt: #16161d;
+  --dim: #6b6b7b;
+  --faint: #9a9aab;
+  --ok: #12a150;
+  --warn: #b45309;
+  --err: #dc2626;
+  --ombre: 0 1px 2px rgba(20, 20, 40, .05), 0 8px 24px rgba(20, 20, 40, .06);
 }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    --bg: #f6f8fa;
-    --surface: #ffffff;
-    --surface-2: #f0f3f6;
-    --line: #d8dee4;
-    --txt: #1f2328;
-    --dim: #5b6673;
-    --faint: #8c96a3;
-    --ok: #1a7f37;
-    --warn: #9a6700;
-    --err: #cf222e;
+/* Le systeme est en sombre, et l'utilisateur n'a pas force le clair. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --accent: #9b84ff;
+    --accent-doux: #241d47;
+    --bg: #0e0e13;
+    --surface: #16161d;
+    --surface-2: #1e1e27;
+    --line: #26262f;
+    --txt: #ececf2;
+    --dim: #9a9aab;
+    --faint: #6b6b7b;
+    --ok: #3ddc84;
+    --warn: #f0a92a;
+    --err: #ff6b6b;
+    --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
   }
 }
 
-* {
-  box-sizing: border-box;
+/* Sombre force par le bouton, quel que soit le systeme. */
+:root[data-theme='dark'] {
+  --accent: #9b84ff;
+  --accent-doux: #241d47;
+  --bg: #0e0e13;
+  --surface: #16161d;
+  --surface-2: #1e1e27;
+  --line: #26262f;
+  --txt: #ececf2;
+  --dim: #9a9aab;
+  --faint: #6b6b7b;
+  --ok: #3ddc84;
+  --warn: #f0a92a;
+  --err: #ff6b6b;
+  --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
 }
 
-html,
-body {
-  height: 100%;
-}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--txt);
-  font: 15px/1.6 var(--sans);
+  font: 15px/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
+  /* Encoches et barres gestuelles des telephones recents. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* ── Logo ─────────────────────────────────────────────── */
+/* ── Marque ───────────────────────────────────────────── */
 
-.logo {
-  display: block;
-  color: var(--accent);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.brand-name {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.3px;
-}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.logo { display: block; color: var(--accent); flex: 0 0 auto; }
+.brand-name { font-size: 16px; font-weight: 650; letter-spacing: -.2px; }
 .brand-sub {
-  font-size: 12px;
-  color: var(--dim);
+  font: 11.5px var(--mono); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ── Boutons ──────────────────────────────────────────── */
+/* La meme classe sert aux <button> et aux <a> : d'ou `text-decoration` et
+   `display` explicites, qu'un <a> n'herite pas. */
 
 .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  color: var(--txt);
-  border-radius: 8px;
-  padding: 7px 13px;
-  font: inherit;
-  font-size: 13.5px;
-  cursor: pointer;
-  text-decoration: none;
-  transition: background 0.14s, border-color 0.14s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--txt); border-radius: 10px;
+  /* 40 px de cote au minimum : une cible atteignable au doigt. */
+  min-height: 40px; padding: 9px 13px;
+  font: inherit; font-size: 13.5px; font-weight: 550;
+  cursor: pointer; text-decoration: none;
+  transition: border-color .14s, background .14s;
 }
-.btn:hover {
-  background: var(--line);
-  border-color: var(--faint);
-}
-.btn svg {
-  flex: 0 0 auto;
-}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:active { transform: scale(.98); }
+.btn svg { flex: 0 0 auto; }
 
 /* ── Pastilles d'etat ─────────────────────────────────── */
 
 .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: 0 0 auto;
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
   background: var(--faint);
 }
-.dot.up {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
-}
-.dot.degraded {
-  background: var(--warn);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
-}
-.dot.down {
-  background: var(--err);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent);
-}
-.dot.pending {
-  animation: pulse 1.2s ease-in-out infinite;
-}
+/* Les deux jeux de noms coexistent : le JS de sante pose `up`/`degraded`/
+   `down`, le reste de l'interface `ok`/`warn`/`err`. Les declarer ensemble
+   evite qu'un renommage d'un cote laisse des pastilles grises de l'autre. */
+.dot.ok, .dot.up { background: var(--ok); }
+.dot.warn, .dot.degraded { background: var(--warn); }
+.dot.err, .dot.down { background: var(--err); }
+.dot.pending { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
 
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
+/* Mouvement reduit : c'est une demande systeme, pas un gout esthetique — elle
+   vient souvent de troubles vestibulaires. On coupe tout, sans exception. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }
