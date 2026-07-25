@@ -65,18 +65,22 @@ ENV OLLAMA_BASE_URL=http://127.0.0.1:11434
 # du meme noyau : torch, scikit-learn, xgboost, lightgbm et la famille
 # langchain.
 #
-# torch vient de l'index CPU : le conteneur n'a aucun GPU, et la build CUDA
-# y ajouterait ~6 Go de pilotes qui ne serviraient jamais.
+# torch est installe APRES les autres paquets, et depuis l'index CPU. L'ordre
+# compte : installe avant, il etait ecrase par une dependance qui retirait la
+# build CUDA de PyPI — l'image embarquait alors 2,8 Go de bibliotheques nvidia
+# qu'aucun GPU ne viendra jamais utiliser. Les paquets nvidia-* residuels sont
+# desinstalles derriere.
 #
 # Environnement SEPARE, comme Sage : ces paquets epinglent des versions de
 # numpy et pandas differentes de celles du notebook.
 COPY services/guest-ai-requirements.txt /tmp/ai-requirements.txt
 RUN (mamba create -y -n ai -c conda-forge python=3.12 ipykernel \
-     && mamba run -n ai pip install --no-cache-dir \
-          --index-url https://download.pytorch.org/whl/cpu \
-          --extra-index-url https://pypi.org/simple \
-          torch torchvision torchaudio \
      && mamba run -n ai pip install --no-cache-dir -r /tmp/ai-requirements.txt \
+     && mamba run -n ai pip install --no-cache-dir --force-reinstall \
+          --index-url https://download.pytorch.org/whl/cpu \
+          torch torchvision torchaudio \
+     && mamba run -n ai pip uninstall -y $(mamba run -n ai pip list --format=freeze \
+          | grep "^nvidia-" | cut -d= -f1 | tr "\n" " ") 2>/dev/null || true \
      && mamba run -n ai python -m ipykernel install --prefix="${CONDA_DIR}" \
           --name ai --display-name "Python (ai)") \
     || echo "Environnement ai indisponible — noyau non installe." \
