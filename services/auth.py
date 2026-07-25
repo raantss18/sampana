@@ -549,7 +549,9 @@ class Handler(BaseHTTPRequestHandler):
         key = base64.b64decode(self.conf["key"])
         ttl = int(self.conf.get("ttl", 30 * 24 * 3600))
         token = make_token(key, ttl)
-        self._send(302, b"", {"Location": nxt, "Set-Cookie": self._cookie(token, ttl)})
+        # 303 : apres un POST, c'est le code qui demande au client de
+        # repartir en GET, sans dependre de la tolerance des navigateurs.
+        self._send(303, b"", {"Location": nxt, "Set-Cookie": self._cookie(token, ttl)})
 
     def log_message(self, *args) -> None:
         """Silence : forward_auth genere une requete par requete utilisateur."""

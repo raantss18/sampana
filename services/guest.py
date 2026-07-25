@@ -533,6 +533,34 @@ def purge_latex(email: str) -> tuple[bool, str]:
     return r.returncode == 0, (r.stdout or r.stderr).strip()[:200]
 
 
+_addrs_cache: tuple[float, set[str]] = (0.0, set())
+
+
+def machine_addrs() -> set[str]:
+    """Adresses IPv4 de cette machine, mises en cache une minute.
+
+    Sert a valider l'en-tete Host avant de le repercuter dans une redirection :
+    accepter n'importe quel Host en ferait un moyen de detourner l'etudiant
+    apres la saisie du code.
+    """
+    global _addrs_cache
+    now = time.time()
+    if now - _addrs_cache[0] < 60 and _addrs_cache[1]:
+        return _addrs_cache[1]
+    addrs = set()
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) > 3:
+                addrs.add(parts[3].split("/")[0])
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    _addrs_cache = (now, addrs)
+    return addrs
+
+
 def lan_ips() -> list[str]:
     """Adresses par lesquelles les etudiants peuvent joindre la machine.
 
@@ -756,12 +784,29 @@ class Handler(BaseHTTPRequestHandler):
         """Origine par laquelle l'invite nous joint.
 
         Elle varie : https://hote.ts.net:10000 par le Funnel, http://192.168.1.x
-        en salle. On ne peut donc pas coder l'URL en dur comme le fait auth.py,
-        et il faut se fier a l'en-tete Host — que Caddy transmet tel quel.
+        en salle. On se fie donc a l'en-tete Host, que Caddy transmet tel quel.
+
+        Le schema, lui, ne peut PAS venir de X-Forwarded-Proto : entre tailscaled
+        et Caddy le trafic est en clair, l'en-tete vaut donc «http» alors que
+        l'etudiant est arrive en HTTPS. La redirection post-connexion pointait
+        vers http://…:10000, un port qui ne parle que TLS — la page etait
+        injoignable et il fallait corriger l'URL a la main. Le cookie perdait
+        au passage son drapeau Secure, pour la meme raison.
+
+        On tranche donc sur le nom : le tailnet n'est servi qu'en TLS.
         """
-        proto = self.headers.get("X-Forwarded-Proto", "http")
-        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host", "")
-        return f"{proto}://{host}"
+        host = (self.headers.get("X-Forwarded-Host")
+                or self.headers.get("Host", "")).strip()
+        nom = host.partition(":")[0]
+
+        if nom == self.host:
+            return f"https://{host}"
+        if nom in machine_addrs():
+            # Adresse locale : HTTP simple, aucun certificat n'etant valable
+            # pour une IP privee.
+            return f"http://{host}"
+        # Host inconnu ou forge : on ne le repercute pas dans une redirection.
+        return f"https://{self.host}"
 
     def _sid(self) -> str | None:
         """Identifiant de session porte par le cookie, s'il est valide."""
@@ -1288,7 +1333,10 @@ class Handler(BaseHTTPRequestHandler):
         ttl = int(self.conf.get("ttl", 2 * 3600))
         sid = secrets.token_urlsafe(9)
         open_session(sid, first, last, ip, read_state().get("room", ""))
-        self._send(302, b"", {
+        # 303 et non 302 : apres un POST, c'est le code qui demande
+        # explicitement au client de repartir en GET. Les navigateurs le font
+        # deja pour un 302, mais la norme ne le garantit pas.
+        self._send(303, b"", {
             "Location": f"{self._origin()}/guest/",
             "Set-Cookie": self._cookie_header(make_token(key, ttl, sid), ttl),
         })
