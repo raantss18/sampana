@@ -470,6 +470,23 @@ def run_apply() -> tuple[bool, str]:
     return True, (r.stdout or "").strip()
 
 
+def purge_latex(email: str) -> tuple[bool, str]:
+    """Efface les projets du compte LaTeX Lab partage.
+
+    Appelee a l'ouverture d'une seance, et non seulement par le minuteur de
+    nuit : deux seances d'une meme journee se partageaient sinon les memes
+    projets, ce qui contredit le «non persistant» annonce aux etudiants.
+    """
+    helper = os.path.expanduser("~/.local/share/sampana/purge-guest-latex.sh")
+    if not email or not os.path.exists(helper):
+        return False, "purge non configuree"
+    try:
+        r = subprocess.run([helper, email], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"purge impossible : {e}"
+    return r.returncode == 0, (r.stdout or r.stderr).strip()[:200]
+
+
 def lan_ips() -> list[str]:
     """Adresses par lesquelles les etudiants peuvent joindre la machine.
 
@@ -931,6 +948,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(500, {"error": f"ecriture de la configuration : {e}"})
                     return
 
+                # Purge AVANT de rouvrir : la promesse «rien n'est conserve»
+                # portait jusqu'ici sur la seule purge nocturne, si bien que
+                # deux seances du meme jour se partageaient les projets. Les
+                # etudiants du matin retrouvaient ceux de l'apres-midi.
+                purge_latex(self.latex_email)
                 ok_pw, msg_pw = set_latex_password(self.latex_email, password)
                 st.update(room=room, code=code, ttlMinutes=ttl // 60,
                           latexPassword=password if ok_pw else st.get("latexPassword", ""),

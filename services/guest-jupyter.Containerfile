@@ -22,6 +22,28 @@ RUN pip install --no-cache-dir \
  && fix-permissions "${CONDA_DIR}" \
  && fix-permissions "/home/${NB_USER}"
 
+# SageMath : le Jupyter de l'enseignant en dispose, les etudiants l'attendent
+# donc aussi. C'est un gros paquet (plusieurs Go) et la resolution conda est
+# lente — d'ou une couche separee, qui evite de tout reconstruire quand seul
+# jupyter-ai change.
+# Environnement SEPARE : Sage epingle ses propres versions de Python et de
+# nombreuses bibliotheques scientifiques. L'installer dans l'environnement du
+# notebook rendrait la resolution insoluble, ou casserait scipy et pandas.
+# Le noyau est ensuite declare aupres de JupyterLab.
+# `|| echo` volontaire : Sage est lourd et sa resolution conda echoue selon
+# les plateformes. Une dependance optionnelle ne doit pas rendre TOUTE l'image
+# inconstructible — sans ce garde-fou, un echec ici priverait les etudiants de
+# JupyterLab entier pour un noyau d'appoint. Le noyau est alors simplement
+# absent, ce que `jupyter kernelspec list` montre au premier coup d'oeil.
+RUN (mamba create -y -n sage -c conda-forge sage \
+     && mamba install -y -n sage -c conda-forge ipykernel \
+     && mamba run -n sage python -m ipykernel install --prefix="${CONDA_DIR}" \
+          --name sage --display-name "SageMath") \
+    || echo "SageMath indisponible sur cette plateforme — noyau non installe." \
+ ; mamba clean --all -f -y \
+ && fix-permissions "${CONDA_DIR}" \
+ && fix-permissions "/home/${NB_USER}"
+
 # Ollama est joignable sur la boucle locale INTERNE au conteneur, republiee
 # depuis une socket Unix par guest-ollama-bridge.py (voir le Quadlet).
 ENV OLLAMA_BASE_URL=http://127.0.0.1:11434
