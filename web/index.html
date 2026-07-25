@@ -167,6 +167,19 @@
         <b>Feuille de présence</b>
         <span id="rollCount">—</span>
       </div>
+      <div class="cfg-row" style="margin-bottom:10px">
+        <a class="cfg-toggle" href="/guest-admin/export?kind=csv&amp;scope=current"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Séance en CSV</a>
+        <a class="cfg-toggle" href="/guest-admin/export?kind=csv&amp;scope=history"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Historique en CSV</a>
+        <a class="cfg-toggle" href="/guest-admin/export?kind=zip&amp;scope=all"
+           download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Tout télécharger</a>
+        <button class="cfg-toggle" id="printRoll" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9V3h12v6"/><rect x="6" y="14" width="12" height="7"/>
+            <path d="M6 18H4a1 1 0 01-1-1v-6a1 1 0 011-1h16a1 1 0 011 1v6a1 1 0 01-1 1h-2"/>
+          </svg>Imprimer / PDF</button>
+      </div>
       <table id="rollTable"><tbody></tbody></table>
     </div>
 
@@ -177,7 +190,7 @@
       </div>
       <div class="cfg-row" style="margin-bottom:10px">
         <input id="fileInput" type="file" multiple style="min-width:220px">
-        <button id="fileSend" type="button">Déposer</button>
+        <button id="fileSend" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>Déposer</button>
       </div>
       <p class="cfg-msg" id="fileMsg"></p>
       <table id="fileTable"><tbody></tbody></table>
@@ -186,7 +199,7 @@
     <div class="guest-roll">
       <div class="roll-head">
         <b>Historique des séances</b>
-        <button class="cfg-toggle" id="histToggle" type="button">afficher</button>
+        <button class="cfg-toggle" id="histToggle" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>Afficher</button>
       </div>
       <div id="histBody" hidden></div>
     </div>
@@ -196,7 +209,7 @@
   <div class="empty" id="empty" hidden>Aucun service ne correspond.</div>
 
   <section class="cfg" id="cfg" hidden>
-    <button class="cfg-toggle" id="cfgToggle" type="button">Configuration</button>
+    <button class="cfg-toggle" id="cfgToggle" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 004.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>Configuration</button>
     <div class="cfg-body" id="cfgBody" hidden>
 
       <div class="cfg-block">
@@ -207,7 +220,13 @@
                  autocomplete="current-password">
           <input id="pwNew" type="password" placeholder="Nouveau (8 car. min.)"
                  autocomplete="new-password">
-          <button id="pwSave" type="button">Changer</button>
+          <input id="pwNew2" type="password" placeholder="Confirmer le nouveau"
+                 autocomplete="new-password">
+          <button id="pwSave" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="10" width="16" height="10" rx="2"/>
+              <path d="M8 10V7a4 4 0 018 0v3"/>
+            </svg>Changer le mot de passe</button>
         </div>
         <p class="cfg-msg" id="pwMsg"></p>
       </div>
@@ -224,7 +243,7 @@
             <option value="60">1 heure</option>
             <option value="0">Jamais</option>
           </select>
-          <button id="idleSave" type="button">Enregistrer</button>
+          <button id="idleSave" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>Enregistrer</button>
         </div>
         <p class="cfg-msg" id="idleMsg"></p>
       </div>
@@ -249,7 +268,7 @@
           <label style="font-size:13px;color:var(--dim);display:flex;gap:6px;align-items:center">
             <input id="tGuest" type="checkbox"> pour les invités
           </label>
-          <button id="tAdd" type="button">Ajouter</button>
+          <button id="tAdd" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Ajouter</button>
         </div>
         <p class="cfg-msg" id="tMsg"></p>
         <table id="toolTable" style="width:100%;border-collapse:collapse;font-size:13px"><tbody></tbody></table>
@@ -265,7 +284,7 @@
             <option value="360">6 h</option>
             <option value="480">8 h</option>
           </select>
-          <button id="gdefSave" type="button">Enregistrer</button>
+          <button id="gdefSave" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>Enregistrer</button>
         </div>
         <p class="cfg-msg" id="gdefMsg"></p>
       </div>
@@ -328,11 +347,18 @@
   .roll-empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
 
   .cfg { margin-top: 28px; }
+  /* Boutons d'action : icone + libelle. Les anciens liens soulignes minuscules
+     etaient difficiles a viser et ne se distinguaient pas du texte. */
   .cfg-toggle {
-    background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px;
-    cursor: pointer; padding: 6px 0; text-decoration: underline; text-underline-offset: 3px;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--txt);
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; padding: 5px 11px; border-radius: 7px;
   }
-  .cfg-toggle:hover { color: var(--txt); }
+  .cfg-toggle:hover { border-color: var(--accent); }
+  .cfg-toggle svg { width: 14px; height: 14px; flex: 0 0 auto; }
+  .cfg-row button svg, .guest-btn svg { width: 15px; height: 15px; margin-right: 7px;
+    vertical-align: -3px; }
   .cfg-body {
     margin-top: 12px; border: 1px solid var(--line); border-radius: 14px;
     background: var(--surface); padding: 6px 20px 20px;
@@ -404,6 +430,11 @@
           ${r.idle ? `inactif ${dur(r.idleSeconds)}` : '● actif'}<br>
           <span class="path">présent ${dur(r.durationSeconds)}</span>
         </td>
+        <td style="text-align:right">
+          <a class="cfg-toggle" download
+             href="/guest-admin/export?kind=zip&amp;sid=${r.id}"
+             title="Fiche et parcours de cet étudiant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 18v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>ZIP</a>
+        </td>
       </tr>`;
     }).join('');
   };
@@ -431,7 +462,7 @@
       <td>${f.dir ? '📁 ' : ''}${f.name}</td>
       <td class="path">${f.dir ? '' : poids(f.size)}</td>
       <td class="state">${f.dir ? '' :
-        `<button class="cfg-toggle" data-del="${encodeURIComponent(f.name)}">retirer</button>`}</td>
+        `<button class="cfg-toggle" data-del="${encodeURIComponent(f.name)}">${POUBELLE}Retirer</button>`}</td>
     </tr>`).join('');
   };
 
@@ -473,7 +504,7 @@
   document.getElementById('histToggle').addEventListener('click', async (e) => {
     const box = document.getElementById('histBody');
     box.hidden = !box.hidden;
-    e.target.textContent = box.hidden ? 'afficher' : 'masquer';
+    e.target.lastChild.textContent = box.hidden ? 'Afficher' : 'Masquer';
     if (box.hidden) return;
 
     let data;
@@ -499,6 +530,33 @@
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">
           ${lignes}</table></details>`;
     }).join('');
+  });
+
+  document.getElementById('printRoll').addEventListener('click', () => {
+    // Fenêtre dédiée : imprimer la page entière emporterait la recherche, les
+    // cartes et les boutons. Le navigateur offre « Enregistrer au format PDF »
+    // dans sa boîte d'impression — pas de générateur PDF à embarquer.
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) { alert('Autorisez les fenêtres surgissantes pour imprimer.'); return; }
+    const lignes = [...rollTb.querySelectorAll('tr')].map(tr => {
+      const c = [...tr.children].slice(0, 3).map(td => td.innerText.replace(/\s+/g, ' ').trim());
+      return `<tr>${c.map(x => `<td>${x}</td>`).join('')}</tr>`;
+    }).join('');
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+      <title>Feuille de présence</title><style>
+      body{font:13px system-ui,sans-serif;padding:28px;color:#111}
+      h1{font-size:17px;margin:0 0 4px} p{color:#555;margin:0 0 18px;font-size:12px}
+      table{width:100%;border-collapse:collapse}
+      td,th{padding:6px 8px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}
+      th{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#555}
+      </style></head><body>
+      <h1>Feuille de présence</h1>
+      <p>Séance du ${new Date().toLocaleString('fr-FR')} — ${rollNb.textContent || '0 connecté'}</p>
+      <table><thead><tr><th>Étudiant</th><th>Outil et parcours</th><th>Présence</th></tr></thead>
+      <tbody>${lignes}</tbody></table></body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
   });
 
   const paint = (st) => {
@@ -639,16 +697,34 @@
     const el = document.getElementById('pwMsg');
     const cur = document.getElementById('pwCur').value;
     const nw  = document.getElementById('pwNew').value;
+    const nw2 = document.getElementById('pwNew2').value;
     if (nw.length < 8) { msg(el, '8 caractères minimum.', false); return; }
+    if (nw !== nw2)    { msg(el, 'Les deux saisies diffèrent.', false); return; }
+
     msg(el, 'Changement…', true);
-    const { ok, out } = await post('/auth/password', { current: cur, new: nw });
-    if (ok) {
-      document.getElementById('pwCur').value = '';
-      document.getElementById('pwNew').value = '';
-      msg(el, 'Mot de passe changé. Les autres sessions sont déconnectées.', true);
-    } else {
-      msg(el, out.error || 'Échec du changement.', false);
+    const r = await fetch('/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current: cur, new: nw }),
+    });
+
+    if (r.ok) {
+      // Le changement fait tourner la clé de signature : toutes les sessions
+      // tombent, y compris celle-ci. On renvoie donc vers la connexion plutôt
+      // que de laisser une page dont chaque requête suivante échouerait — ce
+      // qui affichait « Échec » alors que le mot de passe était bien changé.
+      msg(el, 'Mot de passe changé. Reconnexion…', true);
+      setTimeout(() => { location.href = '/auth/login'; }, 1200);
+      return;
     }
+
+    // 403 sans corps = la session n'est plus valide, typiquement après un
+    // premier changement réussi. Le dire, plutôt qu'un « échec » trompeur.
+    let out = {};
+    try { out = await r.json(); } catch {}
+    msg(el, out.error || (r.status === 403
+      ? 'Session expirée — reconnectez-vous avant de réessayer.'
+      : 'Échec du changement.'), false);
   });
 
   document.getElementById('idleSave').addEventListener('click', async () => {
@@ -665,6 +741,11 @@
   // régénère, VALIDE et recharge Caddy. La validation avant installation est
   // le garde-fou : une configuration cassée depuis cette page rendrait la
   // page elle-même inaccessible, donc irréparable d'ici.
+  const OEIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+    '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const POUBELLE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+    '<path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a1 1 0 01-1 1H7a1 1 0 01-1-1V6"/></svg>';
+
   const tMsg   = document.getElementById('tMsg');
   const tRoute = document.getElementById('tRoute');
   const tPort  = document.getElementById('tPort');
@@ -679,14 +760,24 @@
     const ligne = (t, guest) => `<tr>
       <td style="padding:5px 6px;border-top:1px solid var(--line)">${t.label}</td>
       <td style="padding:5px 6px;border-top:1px solid var(--line)" class="path">
-        ${guest ? 'invité' : t.group}${t.hidden ? ' · masqué' : ''}</td>
+        ${guest ? (t.route === 'port' ? 'port dédié' : 'sous-chemin')
+                : t.group}${t.hidden ? ' · masqué' : ''}</td>
       <td style="padding:5px 6px;border-top:1px solid var(--line);text-align:right">
         ${guest ? '' : `<button class="cfg-toggle" data-hide="${t.id}"
-           data-val="${t.hidden ? 0 : 1}">${t.hidden ? 'afficher' : 'masquer'}</button> `}
-        <button class="cfg-toggle" data-rm="${t.id}" data-guest="${guest ? 1 : 0}">retirer</button>
+           data-val="${t.hidden ? 0 : 1}">${OEIL}${t.hidden ? 'Afficher' : 'Masquer'}</button> `}
+        <button class="cfg-toggle" data-rm="${t.id}" data-guest="${guest ? 1 : 0}">${POUBELLE}Retirer</button>
       </td></tr>`;
-    toolTb.innerHTML = d.admin.map(t => ligne(t, false)).join('') +
-                       d.guest.map(t => ligne(t, true)).join('');
+    // Deux listes SEPAREES, avec un intitule chacune. Les memes libelles y
+    // figurent des deux cotes (« JupyterLab » existe en admin et en invite),
+    // et les afficher a la suite donnait l'impression d'un doublon.
+    const entete = (txt) => `<tr><td colspan="3" style="padding:12px 6px 4px;
+      font-size:11.5px;font-weight:650;text-transform:uppercase;
+      letter-spacing:.7px;color:var(--dim)">${txt}</td></tr>`;
+    toolTb.innerHTML =
+      entete('Tableau de bord — protégés par le mot de passe') +
+      d.admin.map(t => ligne(t, false)).join('') +
+      entete('Mode invité — accessibles avec le code de séance') +
+      d.guest.map(t => ligne(t, true)).join('');
   };
 
   const applique = async (url, payload, quoi) => {

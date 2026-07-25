@@ -148,6 +148,28 @@ premier lancement, ou en génère un et l'affiche si aucun terminal n'est
 disponible. Seule une empreinte scrypt est conservée : un mot de passe perdu
 ne se récupère pas, il se remplace (`rm ~/.config/sampana/auth.json && ./install.sh`).
 
+## Accéder au tableau de bord
+
+Trois chemins, tous derrière le mot de passe maître :
+
+| Depuis | Adresse | Internet requis |
+|---|---|---|
+| N'importe où | `https://hôte.tailnet.ts.net/` | oui (Tailscale) |
+| Réseau local | `http://<ip-locale>:8088` | **non** |
+| Partage de connexion | `http://10.42.0.1:8088` | **non** |
+
+Les deux dernières fonctionnent **sans Tailscale et sans Internet** : Caddy
+écoute sur toutes les interfaces (`CADDY_BIND=0.0.0.0`) et le mot de passe
+reste exigé. C'est le mode à utiliser en salle.
+
+L'adresse exacte est affichée dans les consignes du panneau *Mode invité*,
+lues côté serveur — l'ouvrir via Tailscale afficherait sinon le nom `.ts.net`,
+qui ne répond pas hors du tailnet.
+
+En HTTP simple, aucun certificat n'est valable pour une adresse IP privée : le
+cookie de session est donc émis sans le drapeau `Secure`, faute de quoi le
+navigateur l'ignorerait et la connexion échouerait en boucle.
+
 ## Configuration depuis le dashboard
 
 Une section **Configuration** permet de changer le mot de passe maître, le

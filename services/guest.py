@@ -470,6 +470,69 @@ def run_apply() -> tuple[bool, str]:
     return True, (r.stdout or "").strip()
 
 
+CSV_COLS = ["Nom", "Prénom", "Séance", "Arrivée", "Dernière activité",
+            "Durée (min)", "Outils", "Adresse IP"]
+
+
+def _csv_cell(v: str) -> str:
+    v = str(v).replace('"', '""')
+    return f'"{v}"' if any(c in v for c in ',;"\n') else v
+
+
+def rows_to_csv(rows: list[dict], room: str = "") -> str:
+    """Feuille de présence au format CSV.
+
+    Separateur point-virgule et BOM UTF-8 : c'est ce qu'attend Excel en locale
+    francaise. Avec une virgule, tout atterrit dans une seule colonne.
+    """
+    out = ["﻿" + ";".join(CSV_COLS)]
+    for r in rows:
+        outils = " > ".join(dict.fromkeys(e["tool"] for e in r.get("timeline", [])))
+        out.append(";".join(_csv_cell(v) for v in [
+            r["last"].upper(), r["first"], r.get("room", room),
+            time.strftime("%Y-%m-%d %H:%M", time.localtime(r["started"])),
+            time.strftime("%Y-%m-%d %H:%M", time.localtime(r["lastSeen"])),
+            round(r.get("durationSeconds", r["lastSeen"] - r["started"]) / 60),
+            outils, r.get("ip", ""),
+        ]))
+    return "\n".join(out) + "\n"
+
+
+def guest_workspace_tar() -> bytes:
+    """Espace de travail du JupyterLab invite, sous forme d'archive tar.
+
+    L'instance est PARTAGEE : ce repertoire est commun a tous les etudiants et
+    ses fichiers ne sont donc attribuables a personne en particulier. Il n'est
+    exporte qu'en bloc, jamais dans l'archive d'un etudiant, pour ne pas
+    laisser croire a une attribution qui n'existe pas.
+    """
+    try:
+        r = subprocess.run(
+            ["podman", "exec", "systemd-sampana-guest-jupyter",
+             "tar", "-cf", "-", "-C", "/home/jovyan/work", "."],
+            capture_output=True, timeout=120)
+        return r.stdout if r.returncode == 0 else b""
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+
+
+def purge_latex(email: str) -> tuple[bool, str]:
+    """Efface les projets du compte LaTeX Lab partage.
+
+    Appelee a l'ouverture d'une seance, et non seulement par le minuteur de
+    nuit : deux seances d'une meme journee se partageaient sinon les memes
+    projets, ce qui contredit le «non persistant» annonce aux etudiants.
+    """
+    helper = os.path.expanduser("~/.local/share/sampana/purge-guest-latex.sh")
+    if not email or not os.path.exists(helper):
+        return False, "purge non configuree"
+    try:
+        r = subprocess.run([helper, email], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"purge impossible : {e}"
+    return r.returncode == 0, (r.stdout or r.stderr).strip()[:200]
+
+
 def lan_ips() -> list[str]:
     """Adresses par lesquelles les etudiants peuvent joindre la machine.
 
@@ -763,6 +826,86 @@ class Handler(BaseHTTPRequestHandler):
         # Ces routes sont servies par le site ADMIN, derriere le mot de passe
         # maitre (forward_auth). Elles ne sont pas joignables depuis le site
         # invite : celui-ci ne proxifie que /guest/*.
+        if path == "/guest-admin/export":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            kind = (q.get("kind") or ["csv"])[0]
+            scope = (q.get("scope") or ["current"])[0]
+            sid = (q.get("sid") or [""])[0]
+
+            st = read_state()
+            hist = {}
+            try:
+                with open(_history_path) as fh:
+                    hist = json.load(fh)
+            except (OSError, ValueError):
+                hist = {"rooms": []}
+
+            if scope == "history":
+                rows = [dict(s, room=r["room"])
+                        for r in hist.get("rooms", []) for s in r["students"]]
+            else:
+                rows = session_view(st.get("room"))
+
+            stamp = time.strftime("%Y%m%d-%H%M")
+
+            if kind == "csv":
+                body = rows_to_csv(rows, st.get("room", "")).encode("utf-8")
+                self._send(200, body, {
+                    "Content-Type": "text/csv; charset=utf-8",
+                    "Content-Disposition":
+                        f'attachment; filename="presences-{scope}-{stamp}.csv"',
+                })
+                return
+
+            if kind == "zip":
+                import io
+                import zipfile
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                    if sid:
+                        cible = [r for r in rows if r.get("id") == sid]
+                        if not cible:
+                            self._json(404, {"error": "session introuvable"})
+                            return
+                        r = cible[0]
+                        nom = f"{r['last']}-{r['first']}".replace(" ", "-")
+                        z.writestr(f"{nom}/fiche.csv", rows_to_csv(cible))
+                        z.writestr(f"{nom}/parcours.json",
+                                   json.dumps(r, ensure_ascii=False, indent=2))
+                        z.writestr(f"{nom}/LISEZ-MOI.txt",
+                                   "Cette archive contient la fiche de présence et le\n"
+                                   "parcours de l'étudiant.\n\n"
+                                   "Elle ne contient AUCUN fichier de travail : le\n"
+                                   "JupyterLab invité est une instance partagée, son\n"
+                                   "espace de travail est commun à toute la classe et\n"
+                                   "ses fichiers ne sont attribuables à personne en\n"
+                                   "particulier. Utilisez « Tout télécharger » pour\n"
+                                   "récupérer cet espace en bloc.\n")
+                    else:
+                        z.writestr("presences.csv", rows_to_csv(rows, st.get("room", "")))
+                        z.writestr("historique.json",
+                                   json.dumps(hist, ensure_ascii=False, indent=2))
+                        tar = guest_workspace_tar()
+                        if tar:
+                            z.writestr("espace-de-travail-partage.tar", tar)
+                        z.writestr("LISEZ-MOI.txt",
+                                   "presences.csv       feuille de présence\n"
+                                   "historique.json     séances archivées, avec parcours\n"
+                                   "espace-de-travail-partage.tar\n"
+                                   "                    espace COMMUN du JupyterLab invité.\n"
+                                   "                    L'instance est partagée : ces fichiers\n"
+                                   "                    ne sont attribuables à aucun étudiant.\n"
+                                   "                    Il disparaît à chaque redémarrage.\n")
+                nom = f"presences-{sid or scope}-{stamp}.zip"
+                self._send(200, buf.getvalue(), {
+                    "Content-Type": "application/zip",
+                    "Content-Disposition": f'attachment; filename="{nom}"',
+                })
+                return
+
+            self._json(400, {"error": "format inconnu"})
+            return
+
         if path == "/guest-admin/tools":
             try:
                 cfg = read_services()
@@ -931,6 +1074,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(500, {"error": f"ecriture de la configuration : {e}"})
                     return
 
+                # Purge AVANT de rouvrir : la promesse «rien n'est conserve»
+                # portait jusqu'ici sur la seule purge nocturne, si bien que
+                # deux seances du meme jour se partageaient les projets. Les
+                # etudiants du matin retrouvaient ceux de l'apres-midi.
+                purge_latex(self.latex_email)
                 ok_pw, msg_pw = set_latex_password(self.latex_email, password)
                 st.update(room=room, code=code, ttlMinutes=ttl // 60,
                           latexPassword=password if ok_pw else st.get("latexPassword", ""),

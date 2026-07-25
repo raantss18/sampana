@@ -34,7 +34,14 @@ Volume=@HOME@/.local/share/sampana/guest-ollama-bridge.py:/opt/ollama-bridge.py:
 
 # Repertoire de travail en memoire : rien ne survit a un redemarrage du
 # conteneur, ce qui EST la definition du mode non persistant demande.
-Tmpfs=/home/jovyan/work:size=2g
+#
+# `mode=1777` est OBLIGATOIRE : un tmpfs est monte root:root par defaut, et
+# l'utilisateur du conteneur (jovyan) ne pouvait alors rien y ecrire — ni
+# creer un notebook, ni enregistrer. Jupyter demarrait normalement et tout
+# echouait a la premiere sauvegarde. `Tmpfs=` n'accepte pas uid/gid, d'ou le
+# bit collant comme sur /tmp : ecrivable par tous, mais chacun ne peut
+# supprimer que ses propres fichiers.
+Tmpfs=/home/jovyan/work:size=2g,mode=1777
 
 # 5 a 20 etudiants sur une instance partagee. Les bornes evitent qu'une seule
 # boucle infinie emporte la machine et tes propres services avec elle.
