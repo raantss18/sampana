@@ -400,18 +400,32 @@ def funnel_commands(env: dict[str, str], guest: dict) -> tuple[list[str], list[s
     for svc in guest.get("services", []):
         if svc.get("route") != "port":
             continue
-        if svc["port"] not in allowed:
+        # `funnel_port` separe le port publie du port ecoute localement. Sans
+        # cette separation, tailscaled lie 100.x:PORT pendant que Caddy tente
+        # 0.0.0.0:PORT — et Caddy refuse alors de demarrer, emportant le
+        # dashboard avec lui des que le Funnel est ouvert.
+        pub = svc.get("funnel_port", svc["port"])
+        if pub in allowed and pub == svc["port"]:
+            # Seuls les ports REELLEMENT publies posent probleme : un service
+            # qui reste en salle ne croise jamais tailscaled.
+            print(
+                f"  ATTENTION : {svc['id']} publie et ecoute sur le meme port "
+                f"({pub}). Declare `funnel_port` different de `port`, sinon "
+                f"Caddy ne pourra plus demarrer une fois le Funnel ouvert.",
+                file=sys.stderr,
+            )
+        if pub not in allowed:
             # Pas une erreur : un service invite peut n'exister qu'en salle.
             # Tailscale ne publie que 443, 8443 et 10000, et ils sont comptes.
             print(
-                f"  note : {svc['id']} (port {svc['port']}) restera accessible "
+                f"  note : {svc['id']} (port {pub}) restera accessible "
                 f"sur le LAN uniquement — Funnel n'accepte que 443, 8443, 10000.",
                 file=sys.stderr,
             )
             continue
-        on.append(f"tailscale funnel --bg --https={svc['port']} "
+        on.append(f"tailscale funnel --bg --https={pub} "
                   f"http://127.0.0.1:{svc['port']}")
-        off.append(f"tailscale funnel --https={svc['port']} off")
+        off.append(f"tailscale funnel --https={pub} off")
 
     if int(env["GUEST_FUNNEL_PORT"]) not in allowed:
         raise SystemExit(
@@ -463,6 +477,9 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
             "route": svc["route"],
             "path": svc.get("path"),
             "port": svc.get("port"),
+            # Port publie par Funnel, quand il differe de l'ecoute locale.
+            # La page invitee choisit selon l'origine par laquelle on la joint.
+            "funnelPort": svc.get("funnel_port", svc.get("port")),
             "openPath": svc.get("open_path", "/"),
             "sharedAccount": bool(svc.get("shared_account")),
         })

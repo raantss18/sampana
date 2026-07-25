@@ -175,10 +175,12 @@
         "desc": "Éditeur LaTeX. Compte partagé, projets effacés chaque nuit.",
         "icon": "document",
         "route": "port",
-        "port": 8443,
+        "port": 8444,
         "upstream": "127.0.0.1:80",
         "open_path": "/project",
-        "shared_account": true
+        "shared_account": true,
+        "funnel_port": 8443,
+        "_comment": "port = ecoute locale de Caddy ; funnel_port = port publie par Tailscale. Les deux DOIVENT differer : tailscaled lie 100.x:8443, et Caddy ne peut alors plus lier 0.0.0.0:8443 — tout redemarrage de Caddy echouerait Funnel ouvert."
       },
       {
         "id": "guest-webui",

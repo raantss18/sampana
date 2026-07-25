@@ -74,10 +74,22 @@ rm -f /tmp/sampana-embed.$$
 step "Publication du dashboard"
 
 sudo install -d -o caddy -g caddy "$WEB_ROOT"
+# `-f` : web/ contient desormais un sous-repertoire (guest/), qu'`install`
+# refuserait de copier comme un fichier ordinaire.
 for f in web/*; do
+    [ -f "$f" ] || continue
     sudo install -o caddy -g caddy -m 644 "$f" "$WEB_ROOT/$(basename "$f")"
 done
 sudo install -o caddy -g caddy -m 644 build/services.web.json "$WEB_ROOT/services.json"
+
+if [ -d web/guest ]; then
+    sudo install -d -o caddy -g caddy "$WEB_ROOT/guest"
+    for f in web/guest/*; do
+        sudo install -o caddy -g caddy -m 644 "$f" "$WEB_ROOT/guest/$(basename "$f")"
+    done
+    [ -f build/guest.web.json ] && \
+        sudo install -o caddy -g caddy -m 644 build/guest.web.json "$WEB_ROOT/guest/guest.web.json"
+fi
 c_ok "$WEB_ROOT mis a jour"
 
 # ── 5. Caddy ────────────────────────────────────────────────────────────
@@ -213,6 +225,181 @@ systemctl --user enable --now ttyd >/dev/null 2>&1
 systemctl --user restart ttyd
 c_ok "ttyd actif sur 127.0.0.1:$TTYD_PORT"
 
+# ── 7a. Application depuis le tableau de bord ───────────────────────────
+step "Ajout d'outils depuis le tableau de bord"
+
+# Le helper vit HORS du depot, appartient a root et n'est pas modifiable par
+# l'utilisateur : sinon la regle sudo ne vaudrait rien, il suffirait d'en
+# reecrire le contenu pour executer n'importe quoi en root.
+sudo install -d -o root -g root -m 755 /usr/local/lib/sampana
+sed "s|@REPO@|$ROOT|g; s|@WEB_ROOT@|$WEB_ROOT|g; s|@USER@|$USER|g" bin/apply.sh \
+    | sudo tee /usr/local/lib/sampana/apply.sh >/dev/null
+sudo chown root:root /usr/local/lib/sampana/apply.sh
+sudo chmod 755 /usr/local/lib/sampana/apply.sh
+
+# Regle etroite : ce seul chemin, sans argument possible. Le tableau de bord
+# n'y gagne rien de plus qu'un shell ttyd, que le mot de passe maitre ouvre
+# deja — mais la regle reste volontairement minimale.
+printf '%s ALL=(root) NOPASSWD: /usr/local/lib/sampana/apply.sh\n' "$USER" \
+    | sudo tee /etc/sudoers.d/sampana >/dev/null
+sudo chmod 440 /etc/sudoers.d/sampana
+if ! sudo visudo -c -f /etc/sudoers.d/sampana >/dev/null 2>&1; then
+    sudo rm -f /etc/sudoers.d/sampana
+    c_err "Regle sudo invalide, retiree. L'ajout d'outils restera manuel."
+else
+    c_ok "Ajout d'outils actif (sudo restreint a /usr/local/lib/sampana/apply.sh)"
+fi
+
+# ── 7b. Mode invite ─────────────────────────────────────────────────────
+if [ "${GUEST_ENABLED:-0}" = "1" ]; then
+    step "Mode invite"
+
+    GUEST_CONF="$HOME/.config/sampana/guest.json"
+    GUEST_STATE="$HOME/.config/sampana/guest-state.json"
+    SHARE="${GUEST_SHARE_DIR:-/srv/sampana-partage}"
+
+    # Repertoire d'echange de la socket. Le conteneur invite n'a aucun reseau :
+    # il ne peut pas ecouter sur un port, il expose une socket Unix que Caddy
+    # vient chercher ici. Le setgid fait heriter le groupe caddy, ce qui permet
+    # un mode 0660 plutot qu'un 0666 ouvert a tous.
+    sudo tee /etc/tmpfiles.d/sampana-guest.conf >/dev/null <<EOF
+d /run/sampana-guest 2750 $USER caddy -
+EOF
+    sudo systemd-tmpfiles --create /etc/tmpfiles.d/sampana-guest.conf
+    c_ok "/run/sampana-guest pret"
+
+    # Dossier partage. Hors de /home : Caddy tourne sous son propre utilisateur
+    # et ne peut pas traverser un home en mode 0710.
+    sudo install -d -o "$USER" -g "$USER" -m 755 "$SHARE" "$SHARE/templates"
+    [ -e "$HOME/sampana-partage" ] || ln -s "$SHARE" "$HOME/sampana-partage"
+    c_ok "Dossier partage : $SHARE (lien depuis ~/sampana-partage)"
+
+    install -m 755 services/guest.py "$HOME/.local/share/sampana/guest.py"
+    install -m 755 services/guest-ollama-bridge.py \
+        "$HOME/.local/share/sampana/guest-ollama-bridge.py"
+
+    if [ ! -f "$GUEST_CONF" ]; then
+        umask 077
+        # Un code provisoire : chaque ouverture de seance le remplace par un
+        # code neuf, genere et affiche par le tableau de bord.
+        python3 services/guest.py --init "sampana-invite" "${GUEST_TTL:-7200}" > "$GUEST_CONF"
+        c_ok "Configuration invite creee (le code est renouvele a chaque seance)"
+    else
+        c_info "Configuration invite existante conservee"
+    fi
+    chmod 600 "$GUEST_CONF"
+
+    cat > "$HOME/.config/systemd/user/sampana-guest.service" <<EOF
+[Unit]
+Description=Sampana — portail invite
+After=network.target
+
+[Service]
+Type=simple
+Environment=SAMPANA_SHARE_DIR=$SHARE
+Environment=SAMPANA_SERVICES=$ROOT/config/services.json
+# Paires «port public:port local» : Tailscale ne publie que 443, 8443 et 10000,
+# alors que le site invite ecoute sur $GUEST_PORT.
+ExecStart=/usr/bin/python3 %h/.local/share/sampana/guest.py $GUEST_CONF \\
+  $GUEST_GATE_PORT $SAMPANA_HOST $GUEST_STATE \\
+  ${GUEST_FUNNEL_PORT}:${GUEST_PORT},8443:8444 $GUEST_PORT \\
+  ${GUEST_LATEX_EMAIL:-} ${GUEST_LATEX_PASSWORD:-}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Passerelle Ollama : le conteneur invite n'ayant aucun reseau, c'est le
+    # seul chemin par lequel jupyter-ai peut atteindre un modele.
+    if command -v socat >/dev/null 2>&1; then
+        cat > "$HOME/.config/systemd/user/sampana-guest-ollama.service" <<'EOF'
+[Unit]
+Description=Sampana — passerelle Ollama pour le conteneur invite
+After=ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/rm -f /run/sampana-guest/ollama.sock
+ExecStart=/usr/bin/socat UNIX-LISTEN:/run/sampana-guest/ollama.sock,fork,mode=0660 TCP:127.0.0.1:11434
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+    else
+        c_warn "socat absent : pas d'assistant IA dans le JupyterLab invite"
+    fi
+
+    # Conteneurs (Quadlet). L'image invitee embarque jupyter-ai : elle doit etre
+    # construite ici, le conteneur ne pouvant rien installer sans reseau.
+    if command -v podman >/dev/null 2>&1; then
+        install -d "$HOME/.config/containers/systemd"
+        for q in services/quadlet/*.container; do
+            [ -f "$q" ] || continue
+            sed "s|@SHARE@|$SHARE|g; s|@HOME@|$HOME|g" "$q" \
+                > "$HOME/.config/containers/systemd/$(basename "$q")"
+        done
+        if ! podman image exists localhost/sampana/guest-jupyter:latest; then
+            c_info "Construction de l'image JupyterLab invitee (plusieurs minutes)…"
+            podman build -f services/guest-jupyter.Containerfile \
+                -t sampana/guest-jupyter:latest . >/dev/null
+        fi
+        c_ok "Conteneurs invites declares"
+    else
+        c_warn "podman absent : le mode invite ne pourra pas isoler JupyterLab"
+    fi
+
+    # Purge du compte LaTeX Lab partage.
+    if [ -n "${GUEST_LATEX_EMAIL:-}" ]; then
+        install -m 755 services/purge-guest-latex.sh \
+            "$HOME/.local/share/sampana/purge-guest-latex.sh"
+        install -m 755 services/set-latex-password.sh \
+            "$HOME/.local/share/sampana/set-latex-password.sh"
+        # Les scripts .mjs sont recopies dans le conteneur Overleaf a chaque
+        # execution : une mise a jour d'Overleaf le recree et emporterait tout
+        # ce qui y a ete depose.
+        install -m 644 services/purge-guest-latex.mjs services/set-latex-password.mjs \
+            "$HOME/.local/share/sampana/"
+        cat > "$HOME/.config/systemd/user/sampana-purge-guest.service" <<EOF
+[Unit]
+Description=Sampana — purge des projets LaTeX Lab invite
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/sampana/purge-guest-latex.sh $GUEST_LATEX_EMAIL
+EOF
+        cat > "$HOME/.config/systemd/user/sampana-purge-guest.timer" <<'EOF'
+[Unit]
+Description=Sampana — purge quotidienne du compte LaTeX Lab invite
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    fi
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now sampana-guest >/dev/null 2>&1
+    systemctl --user restart sampana-guest
+    [ -f "$HOME/.config/systemd/user/sampana-guest-ollama.service" ] && {
+        systemctl --user enable --now sampana-guest-ollama >/dev/null 2>&1
+        systemctl --user restart sampana-guest-ollama
+    }
+    [ -f "$HOME/.config/systemd/user/sampana-purge-guest.timer" ] && \
+        systemctl --user enable --now sampana-purge-guest.timer >/dev/null 2>&1
+    systemctl --user start sampana-guest-jupyter sampana-guest-webui 2>/dev/null || true
+
+    c_ok "Mode invite installe — il demarre FERME, ouvre-le depuis le dashboard"
+fi
+
 # ── 8. Demarrage sans session graphique ─────────────────────────────────
 step "Persistance au demarrage"
 
@@ -269,7 +456,16 @@ if [ "${AUTH_ENABLED:-1}" = "1" ]; then
     fi
     # La page de connexion, elle, doit rester accessible sans session.
     check "connexion" "https://$SAMPANA_HOST/auth/login"
-    for p in 10443 10444 10445 10446 8443; do
+    # Liste derivee de la configuration, jamais ecrite en dur : un port
+    # deplace laissait sinon la verification interroger l'ancien et echouer
+    # sans que rien ne soit casse. Seuls les services du tableau de bord sont
+    # concernes — ceux du mode invite ne sont, eux, PAS proteges par le mot de
+    # passe maitre, c'est leur raison d'etre.
+    for p in $(python3 -c '
+import json
+cfg = json.load(open("build/services.web.json"))
+print(" ".join(str(s["port"]) for g in cfg["groups"] for s in g["services"]
+                if s.get("route") == "port"))'); do
         c="$(curl -s -o /dev/null -w '%{http_code}' -m 25 "https://$SAMPANA_HOST:$p/" || echo 000)"
         [ "$c" = "302" ] || { c_err "port $p non protege (HTTP $c)"; fail=1; }
     done
