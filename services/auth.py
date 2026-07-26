@@ -113,6 +113,17 @@ def touch(token: str, idle_limit: int) -> bool:
     return True
 
 
+def revoked(token: str) -> bool:
+    """Ce jeton a-t-il ete condamne par inactivite ?
+
+    Lecture seule, delibrement : ne repousse pas la fenetre et ne cree aucune
+    entree. C'est ce qui permet a la page de connexion de consulter l'etat sans
+    le modifier.
+    """
+    with _seen_lock:
+        return _seen.get(token) == REVOKED
+
+
 def forget(token: str) -> None:
     with _seen_lock:
         _seen.pop(token, None)
@@ -331,7 +342,16 @@ class Handler(BaseHTTPRequestHandler):
         if token is None:
             return False
         if not activity:
-            return True
+            # Un jeton condamne doit etre traite comme absent, meme ici.
+            #
+            # Repondre «valide» sans regarder la revocation provoquait une
+            # boucle sans fin : /auth/verify rejetait le jeton et renvoyait vers
+            # /auth/login, qui le croyait bon et renvoyait vers /, qui repassait
+            # par /auth/verify… ERR_TOO_MANY_REDIRECTS, sans aucun moyen
+            # d'atteindre le formulaire. Le symptome frappait n'importe quel
+            # navigateur portant un cookie devenu inactif — donc pas la machine
+            # qui venait de s'en servir, ce qui rendait la panne fuyante.
+            return not revoked(token)
         idle = int(self.conf.get("idle", 15 * 60))
         return touch(token, idle) if idle > 0 else True
 
