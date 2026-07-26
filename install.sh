@@ -233,6 +233,24 @@ step "Terminal web (ttyd)"
 # le mot de passe maitre. Un second prompt serait redondant.
 rm -f "$HOME/.config/ttyd-credential"
 
+# Session persistante.
+#
+# ttyd ouvre un shell NEUF a chaque connexion : revenir au tableau de bord puis
+# rouvrir le terminal perdait tout — historique, repertoire courant, commande en
+# cours. Un multiplexeur garde la session vivante entre deux visites ; `new -A`
+# rattache si elle existe, la cree sinon.
+#
+# Sans multiplexeur installe, on retombe sur un shell simple plutot que de
+# refuser de demarrer.
+if command -v tmux >/dev/null; then
+    TTYD_SHELL="tmux new -A -s sampana"
+elif command -v screen >/dev/null; then
+    TTYD_SHELL="screen -xRR sampana"
+else
+    TTYD_SHELL="/bin/bash"
+    c_warn "tmux absent : le terminal repartira de zero a chaque ouverture"
+fi
+
 cat > "$HOME/.config/systemd/user/ttyd.service" <<EOF
 [Unit]
 Description=ttyd - terminal web (servi sous /terminal par Caddy)
@@ -244,7 +262,7 @@ Type=simple
 # -b : ttyd genere ses URL sous /terminal, pour le reverse proxy
 # Pas de -c : l'authentification est assuree en amont par Caddy avec le mot de
 # passe maitre. ttyd n'ecoute que sur la boucle locale.
-ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p $TTYD_PORT -b /terminal -W /bin/bash
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p $TTYD_PORT -b /terminal -W $TTYD_SHELL
 Restart=always
 RestartSec=5
 
