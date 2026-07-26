@@ -11,7 +11,14 @@
   /* `height` et non `min-height` : le cadre doit remplir l'ecran, sans le
      depasser. Avec min-height seul, la hauteur reste indefinie et le
      `height:100%` de l'iframe n'a rien contre quoi se calculer. */
-  body { display: flex; flex-direction: column; overflow: hidden; height: 100dvh; }
+  body {
+    display: flex; flex-direction: column; overflow: hidden;
+    /* `dvh` suit la barre d'URL qui se retracte ; `vh` est le repli pour les
+       navigateurs qui l'ignorent. La seconde declaration ecrase la premiere la
+       ou elle est comprise. */
+    height: 100vh;
+    height: 100dvh;
+  }
 
   .bar {
     flex: 0 0 auto;
