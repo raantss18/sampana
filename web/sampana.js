@@ -17,3 +17,20 @@ function urlService(svc, hote) {
   const proto = tailnet || svc.localSecure ? 'https' : 'http';
   return `${proto}://${hote}:${port}${svc.openPath}`;
 }
+
+/* Echappe une valeur destinee a du HTML construit par concatenation.
+ *
+ * Les noms d'etudiants et de fichiers arrivent de l'exterieur : un eleve saisit
+ * son nom lui-meme, et n'importe qui peut nommer un fichier. Inseres tels quels
+ * dans `innerHTML`, ils s'executent. Le cas grave n'est pas le portail invite
+ * mais la FICHE DE PRESENCE : elle s'affiche dans la page enseignant, qui porte
+ * la session maitre — un nom bien choisi y prendrait la main sur Sampana.
+ *
+ * A appliquer a toute valeur non ecrite par nous, sans exception : c'est la
+ * regle la plus simple a tenir, et la seule qu'on n'oublie pas.
+ */
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}

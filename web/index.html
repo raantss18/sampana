@@ -520,8 +520,8 @@
         : '';
       const rendus = r.nbRendus ? `<span class="path"> · ${r.nbRendus} rendu(s)</span>` : '';
       return `<tr>
-        <td>${r.last.toUpperCase()} ${r.first}${aide}${rendus}</td>
-        <td><span class="tool">${r.tool}</span><br><span class="path">${parcours}</span></td>
+        <td>${esc(r.last.toUpperCase())} ${esc(r.first)}${aide}${rendus}</td>
+        <td><span class="tool">${esc(r.tool)}</span><br><span class="path">${esc(parcours)}</span></td>
         <td class="state ${r.idle ? 'off' : 'on'}">
           ${r.idle ? `inactif ${dur(r.idleSeconds)}` : '● actif'}<br>
           <span class="path">présent ${dur(r.durationSeconds)}</span>
@@ -570,8 +570,8 @@
     }
     fileTb.innerHTML = remonte + data.files.map(f => `<tr>
       <td>${f.dir
-        ? `<button class="cfg-toggle" data-open="${encodeURIComponent(f.path)}">📁 ${f.name}</button>`
-        : f.name}</td>
+        ? `<button class="cfg-toggle" data-open="${encodeURIComponent(f.path)}">📁 ${esc(f.name)}</button>`
+        : esc(f.name)}</td>
       <td class="path">${f.dir ? '' : poids(f.size)}</td>
       <td class="state">
         <button class="cfg-toggle" data-del="${encodeURIComponent(f.path)}">${POUBELLE}Retirer</button>
@@ -706,7 +706,7 @@
     catch { return; }
     shareQuoi.innerHTML = cfgInv.services
       .filter(s => s.route === 'path' || s.direct)   // seuls les chemins du portail
-      .map(s => `<option value="${s.direct ? s.path : s.path + '/'}">${s.label}</option>`)
+      .map(s => `<option value="${esc(s.direct ? s.path : s.path + '/')}">${esc(s.label)}</option>`)
       .join('') + `<option value="/guest/fichiers.html">Dossier partagé</option>`;
   };
 
@@ -767,7 +767,7 @@
     box.innerHTML = data.rooms.map(r => {
       const quand = new Date(r.closedAt * 1000).toLocaleString('fr-FR');
       const lignes = r.students.map(s =>
-        `<tr><td>${s.last.toUpperCase()} ${s.first}</td>` +
+        `<tr><td>${esc(s.last.toUpperCase())} ${esc(s.first)}</td>` +
         `<td class="path">${Math.round(s.durationSeconds / 60)} min</td>` +
         `<td class="path">${[...new Set(s.timeline.map(t => t.tool))].join(' · ')}</td></tr>`
       ).join('');
@@ -1162,9 +1162,9 @@
       a.innerHTML = `
         <div class="card-top">
           <div class="card-icon">${window.SAMPANA_ICONS[s.icon] || window.SAMPANA_ICONS.box}</div>
-          <div class="card-name">${s.label}</div>
+          <div class="card-name">${esc(s.label)}</div>
         </div>
-        <div class="card-desc">${s.desc}</div>
+        <div class="card-desc">${esc(s.desc)}</div>
         <div class="card-foot">
           <span class="dot pending" data-dot="${s.id}"></span>
           <span data-state="${s.id}">…</span>
