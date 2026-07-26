@@ -343,16 +343,6 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
         "\tencode zstd gzip",
         "",
-        "\t# Journal d'acces. Une panne vue depuis un telephone ne se reproduit",
-        "\t# pas depuis la machine : une requete venue du tailnet n'y traverse",
-        "\t# meme pas le tunnel. Sans cette trace, il ne reste qu'a deviner.",
-        "\tlog {",
-        "\t\toutput file /var/log/caddy/acces.log {",
-        "\t\t\troll_size 10MiB",
-        "\t\t\troll_keep 3",
-        "\t\t}",
-        "\t}",
-        "",
         # SAMEORIGIN et non DENY : ce site heberge A LA FOIS l'enveloppe
         # `app.html` et les outils servis en sous-chemin qu'elle doit afficher
         # dans son cadre. DENY interdit l'encadrement meme depuis la meme
