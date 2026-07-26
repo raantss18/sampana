@@ -353,7 +353,13 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         "\t\t}",
         "\t}",
         "",
-    ] + security_headers() + [
+        # SAMEORIGIN et non DENY : ce site heberge A LA FOIS l'enveloppe
+        # `app.html` et les outils servis en sous-chemin qu'elle doit afficher
+        # dans son cadre. DENY interdit l'encadrement meme depuis la meme
+        # origine — le terminal repondait « refused to connect ». La protection
+        # contre le detournement de clic par un site tiers reste entiere : elle
+        # vient du refus des origines EXTERIEURES, que SAMEORIGIN conserve.
+    ] + security_headers(frameable=True) + [
         "\t# Pages de connexion : accessibles SANS session, sinon on ne pourrait",
         "\t# jamais s'authentifier. Doit venir avant le forward_auth.",
         "\thandle /auth/* {",
