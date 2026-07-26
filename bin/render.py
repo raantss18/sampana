@@ -91,6 +91,28 @@ def auth_block(env: dict[str, str], exclude: bool = False) -> list[str]:
     return lines
 
 
+LOCAL_BASE = 11000
+
+
+def local_ports(services: list[dict]) -> dict[str, int]:
+    """Port d'ecoute local de chaque service a port dedie.
+
+    Il DOIT differer du port publie. tailscaled lie deja `100.x:PORT` pour
+    publier le service ; si Caddy tentait `0.0.0.0:PORT`, il echouerait au
+    demarrage et emporterait tout le tableau de bord — panne totale pour une
+    simple collision.
+
+    En ecoutant ailleurs, Caddy peut se lier a toutes les interfaces : les
+    outils deviennent alors joignables depuis le reseau local, comme le
+    tableau de bord lui-meme. Sans cela, chaque carte produit un lien mort
+    des qu'on sort du tailnet.
+    """
+    ports = {}
+    for i, svc in enumerate(s for s in services if s.get("route") == "port"):
+        ports[svc["id"]] = LOCAL_BASE + i
+    return ports
+
+
 def guest_enabled(env: dict[str, str]) -> bool:
     return env.get("GUEST_ENABLED", "0") in ("1", "true", "yes")
 
@@ -293,6 +315,7 @@ def guest_site(env: dict[str, str], guest: dict) -> list[str]:
 def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = None) -> str:
     port = env["CADDY_PORT"]
     web_root = env["WEB_ROOT"]
+    locaux = local_ports(services)
 
     lines = [
         "# GENERE PAR sampana — ne pas editer a la main.",
@@ -303,6 +326,14 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         "\t# L'API admin (127.0.0.1:2019) doit rester active : `systemctl reload",
         "\t# caddy` passe par elle. Avec `admin off`, tout reload echoue.",
         "\tauto_https off",
+        "",
+        "\t# Un bloc adresse par le seul port devient la politique de",
+        "\t# certificats par defaut. Sans cette ligne, celui qui demande un",
+        "\t# certificat entre en conflit avec ceux qui n'en veulent pas et",
+        "\t# Caddy refuse de demarrer — panne totale. On declare donc la meme",
+        "\t# autorite globalement. Sans effet ailleurs : `auto_https off`",
+        "\t# empeche tout autre bloc de reclamer un certificat.",
+        "\tcert_issuer internal",
         "}",
         "",
         "# Pas de bloc `http://127.0.0.1:PORT` : Caddy filtrerait alors sur le Host,",
@@ -312,7 +343,13 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
         "\tencode zstd gzip",
         "",
-    ] + security_headers() + [
+        # SAMEORIGIN et non DENY : ce site heberge A LA FOIS l'enveloppe
+        # `app.html` et les outils servis en sous-chemin qu'elle doit afficher
+        # dans son cadre. DENY interdit l'encadrement meme depuis la meme
+        # origine — le terminal repondait « refused to connect ». La protection
+        # contre le detournement de clic par un site tiers reste entiere : elle
+        # vient du refus des origines EXTERIEURES, que SAMEORIGIN conserve.
+    ] + security_headers(frameable=True) + [
         "\t# Pages de connexion : accessibles SANS session, sinon on ne pourrait",
         "\t# jamais s'authentifier. Doit venir avant le forward_auth.",
         "\thandle /auth/* {",
@@ -347,7 +384,7 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         ]
 
     # Les routes 'strip' d'abord : un prefixe d'API doit gagner sur le prefixe
-    # applicatif dont il partage le debut (/mi-saina-api vs /mi-saina).
+    # applicatif dont il partage le debut (/monapp-api vs /monapp).
     path_services = [s for s in services if s.get("route") == "path"]
     for svc in sorted(path_services, key=lambda s: (not s.get("strip"), s["path"])):
         p = svc["path"]
@@ -383,6 +420,19 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         "\t# Dashboard et shell de navigation.",
         "\thandle {",
         f"\t\troot * {web_root}",
+        "",
+        "\t\t# Nos pages portent des noms fixes : sans consigne, le navigateur",
+        "\t\t# applique sa propre heuristique et garde l'ancienne version.",
+        "\t\t# Un correctif deploye reste alors invisible — et rien ne le",
+        "\t\t# signale, ce qui envoie chercher la panne du cote du serveur.",
+        "\t\t#",
+        "\t\t# `no-cache` n'interdit pas le cache : il impose de REVALIDER.",
+        "\t\t# Avec l'ETag deja pose, une page inchangee coute une 304 vide.",
+        "\t\t# La consigne ne vaut que pour les fichiers servis d'ici : les",
+        "\t\t# outils proxifies gardent la leur, et leurs gros paquets",
+        "\t\t# JavaScript restent caches.",
+        "\t\theader Cache-Control \"no-cache\"",
+        "",
         "\t\tfile_server",
         "\t}",
         "}",
@@ -397,21 +447,55 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         if svc.get("route") != "port":
             continue
         up_port = int(svc["upstream"].rsplit(":", 1)[1])
-        if up_port == svc["port"]:
+        if up_port == locaux[svc["id"]]:
             raise SystemExit(
                 f"ERREUR : {svc['id']} — le port public ({svc['port']}) est identique "
                 f"au port du backend. Choisis un autre port public."
             )
         lines += [
-            f"# {svc['label']}",
-            f":{svc['port']} {{",
-            "\tbind 127.0.0.1",
+            f"# {svc['label']} — ecoute sur {locaux[svc['id']]}, publie sur {svc['port']}",
+            f":{locaux[svc['id']]} {{",
+            f"\tbind {env.get('CADDY_BIND', '127.0.0.1')}",
+        ]
+
+        # Certains services exigent un « contexte securise » : sans HTTPS le
+        # navigateur leur refuse des API entieres et l'outil ne demarre pas.
+        # Via Tailscale le TLS est deja assure ; en local il faut le fournir.
+        #
+        # `on_demand` plutot qu'une liste d'adresses : l'IP de la machine change
+        # (reseau de la salle, partage de connexion), et un certificat fige
+        # deviendrait invalide au premier changement. Contrepartie assumee — un
+        # tiers sur le meme reseau peut faire emettre des certificats a volonte.
+        # L'autorite est locale, donc sans quota ni conséquence exterieure ; le
+        # cout se limite a du stockage.
+        if svc.get("secure_context"):
+            lines += [
+                "\ttls internal {",
+                "\t\ton_demand",
+                "\t}",
+            ]
+
+        lines += [
             # Sans compression, la feuille de style de LaTeX Lab pesait 872 ko
             # sur le reseau. Les services a port dedie en etaient prives : seuls
             # les deux sites principaux la declaraient.
             "\tencode zstd gzip",
+            # Le service d'authentification doit repondre ICI aussi.
+            #
+            # Sans session valide, `forward_auth` renvoie vers /auth/login sur
+            # CE port. Si le chemin n'a pas sa propre route, il part vers
+            # l'outil, qui ne connait pas /auth : la reponse est vide. L'outil
+            # parait alors mort, sans le moindre moyen de se connecter — c'est
+            # exactement ce qu'on voit des que la session expire par inactivite.
+            #
+            # Le `handle` seul ne suffit pas : Caddy applique forward_auth
+            # AVANT lui, si bien que /auth/login se protegerait elle-meme. D'ou
+            # `exclude=True`, qui pose le matcher laissant passer ces chemins.
+            "\thandle /auth/* {",
+            f"\t\treverse_proxy 127.0.0.1:{env['AUTH_PORT']}",
+            "\t}",
         ]
-        lines += auth_block(env)
+        lines += auth_block(env, exclude=True)
 
         # `https+insecure` est une syntaxe propre a `tailscale serve`. Cote
         # Caddy, un backend en TLS auto-signe se declare via un bloc transport.
@@ -452,6 +536,7 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
 
 
 def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
+    locaux = local_ports(services)
     cmds = [
         f"tailscale serve --bg --https=443 http://127.0.0.1:{env['CADDY_PORT']}",
         # Le nom d'hote tape sans schema arrive en http : sans cette regle, le
@@ -463,9 +548,15 @@ def serve_commands(env: dict[str, str], services: list[dict]) -> list[str]:
             continue
         # On pointe vers Caddy (meme numero de port, sur la boucle locale), et
         # non vers le backend : c'est Caddy qui applique le mot de passe maitre.
+        # Publie sur son port habituel, mais pointe vers l'ecoute locale de
+        # Caddy : les deux ne peuvent pas etre le meme numero.
+        # `https+insecure` : l'amont presente un certificat de l'autorite locale,
+        # que tailscaled n'a aucune raison de connaitre. La liaison reste dans
+        # la machine, et le TLS presente au client est celui de Tailscale.
+        schema = "https+insecure" if svc.get("secure_context") else "http"
         cmds.append(
             f"tailscale serve --bg --https={svc['port']} "
-            f"http://127.0.0.1:{svc['port']}"
+            f"{schema}://127.0.0.1:{locaux[svc['id']]}"
         )
     return cmds
 
@@ -611,6 +702,7 @@ def guest_manifest(env: dict[str, str], guest: dict) -> dict:
 
 def web_manifest(env: dict[str, str], cfg: dict) -> dict:
     """Manifeste consomme par le dashboard : uniquement ce qui est affichable."""
+    locaux = local_ports(flatten(cfg))
     groups = []
     for group in cfg.get("groups", []):
         items = []
@@ -626,6 +718,12 @@ def web_manifest(env: dict[str, str], cfg: dict) -> dict:
                     "route": svc["route"],
                     "path": svc.get("path"),
                     "port": svc.get("port"),
+                    # Port d'ecoute locale : c'est lui qu'il faut viser hors du
+                    # tailnet, ou `tailscale serve` n'intervient pas.
+                    "localPort": locaux.get(svc["id"]),
+                    # Sert en HTTPS meme hors tailnet : sans contexte securise
+                    # le navigateur bride des API dont l'outil depend.
+                    "localSecure": bool(svc.get("secure_context")),
                     "openPath": svc.get("open_path", "/"),
                     "embed": bool(svc.get("embed")),
                     "embedReason": svc.get("embed_reason", ""),

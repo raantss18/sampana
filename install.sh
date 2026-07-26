@@ -113,6 +113,38 @@ sudo systemctl enable caddy >/dev/null 2>&1
 sudo systemctl restart caddy
 c_ok "Caddy valide, actif et active au demarrage"
 
+# Autorite de certification locale.
+#
+# Certains outils exigent un «contexte securise» : sans HTTPS le navigateur leur
+# refuse des API entieres et ils ne demarrent pas du tout. Via Tailscale le TLS
+# est deja assure, mais en salle — reseau local, partage de connexion — c'est
+# Caddy qui signe, avec une autorite qu'aucun magasin ne connait encore.
+#
+# On l'installe donc ici : dans le magasin systeme, puis dans ceux des
+# navigateurs, qui ont chacun le leur et ignorent celui du systeme. Sans cette
+# etape, l'outil s'ouvre sur un avertissement de securite a chaque visite.
+CA_ROOT=/var/lib/caddy/pki/authorities/local/root.crt
+if sudo test -f "$CA_ROOT"; then
+    sudo install -m 644 "$CA_ROOT" \
+        /etc/ca-certificates/trust-source/anchors/sampana-caddy-local.crt \
+        2>/dev/null && sudo update-ca-trust 2>/dev/null || true
+
+    if command -v certutil >/dev/null; then
+        sudo cp "$CA_ROOT" "$HOME/sampana-autorite-locale.crt"
+        sudo chown "$(id -un):$(id -gn)" "$HOME/sampana-autorite-locale.crt"
+        for db in "$HOME/.pki/nssdb" "$HOME"/.mozilla/firefox/*.default*; do
+            [ -d "$db" ] || continue
+            certutil -d "sql:$db" -D -n "Sampana Caddy Local" 2>/dev/null || true
+            certutil -d "sql:$db" -A -t "CT,C,C" -n "Sampana Caddy Local" \
+                -i "$HOME/sampana-autorite-locale.crt" 2>/dev/null || true
+        done
+        c_ok "Autorite locale installee (systeme + navigateurs)"
+        c_info "Pour tablette/telephone : ~/sampana-autorite-locale.crt"
+    else
+        c_warn "certutil absent (paquet nss) : les navigateurs avertiront"
+    fi
+fi
+
 # ── 6. Service de sante ─────────────────────────────────────────────────
 step "Service de sante"
 
@@ -201,6 +233,24 @@ step "Terminal web (ttyd)"
 # le mot de passe maitre. Un second prompt serait redondant.
 rm -f "$HOME/.config/ttyd-credential"
 
+# Session persistante.
+#
+# ttyd ouvre un shell NEUF a chaque connexion : revenir au tableau de bord puis
+# rouvrir le terminal perdait tout — historique, repertoire courant, commande en
+# cours. Un multiplexeur garde la session vivante entre deux visites ; `new -A`
+# rattache si elle existe, la cree sinon.
+#
+# Sans multiplexeur installe, on retombe sur un shell simple plutot que de
+# refuser de demarrer.
+if command -v tmux >/dev/null; then
+    TTYD_SHELL="tmux new -A -s sampana"
+elif command -v screen >/dev/null; then
+    TTYD_SHELL="screen -xRR sampana"
+else
+    TTYD_SHELL="/bin/bash"
+    c_warn "tmux absent : le terminal repartira de zero a chaque ouverture"
+fi
+
 cat > "$HOME/.config/systemd/user/ttyd.service" <<EOF
 [Unit]
 Description=ttyd - terminal web (servi sous /terminal par Caddy)
@@ -212,7 +262,7 @@ Type=simple
 # -b : ttyd genere ses URL sous /terminal, pour le reverse proxy
 # Pas de -c : l'authentification est assuree en amont par Caddy avec le mot de
 # passe maitre. ttyd n'ecoute que sur la boucle locale.
-ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p $TTYD_PORT -b /terminal -W /bin/bash
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p $TTYD_PORT -b /terminal -W $TTYD_SHELL
 Restart=always
 RestartSec=5
 
@@ -369,6 +419,16 @@ EOF
             c_info "Construction de l'image JupyterLab invitee (plusieurs minutes)…"
             podman build -f services/guest-jupyter.Containerfile \
                 -t sampana/guest-jupyter:latest . >/dev/null
+        fi
+        # Excalidraw est modifie a la construction : adresse de collaboration
+        # rendue relative, et polices rapatriees dans l'image. Sans cette
+        # etape, une installation neuve tirerait l'image officielle, dont les
+        # polices viennent d'un CDN — le tableau blanc s'afficherait alors avec
+        # des caracteres de repli des que la salle est sans Internet.
+        if ! podman image exists localhost/sampana/excalidraw:latest; then
+            c_info "Construction de l'image Excalidraw (polices hors ligne)…"
+            podman build -f services/excalidraw.Containerfile \
+                -t sampana/excalidraw:latest . >/dev/null
         fi
         c_ok "Conteneurs invites declares"
     else

@@ -131,13 +131,18 @@ const dire = (texte, erreur) => {
 
 const fichierUrl = (chemin) => `/guest/partage/${chemin.split('/').map(encodeURIComponent).join('/')}`;
 
+/* Meme regle que cote enseignant : un nom de fichier vient du disque, pas de
+   nous. Insere tel quel dans innerHTML, il s'executerait. */
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const dessinerFil = () => {
   const parts = courant ? courant.split('/') : [];
   let acc = '';
   fil.innerHTML = `<button data-go="">Fichiers partagés</button>`;
   for (const p of parts) {
     acc = acc ? `${acc}/${p}` : p;
-    fil.innerHTML += `<span>›</span><button data-go="${encodeURIComponent(acc)}">${p}</button>`;
+    fil.innerHTML += `<span>›</span><button data-go="${encodeURIComponent(acc)}">${esc(p)}</button>`;
   }
 };
 
@@ -165,9 +170,9 @@ const charger = async (chemin) => {
     const sous = f.dir ? 'Dossier'
       : `${poids(f.size)} · ${new Date(f.modified * 1000).toLocaleDateString('fr-FR')}`;
     return `<li tabindex="0" data-path="${encodeURIComponent(f.path)}"
-                data-dir="${f.dir ? 1 : 0}" data-ext="${ext}">
+                data-dir="${f.dir ? 1 : 0}" data-ext="${esc(ext)}">
       <span class="ico">${o.ico}</span>
-      <span class="meta"><span class="nom">${f.name}</span><span class="sous">${sous}</span></span>
+      <span class="meta"><span class="nom">${esc(f.name)}</span><span class="sous">${sous}</span></span>
       <span class="action">${o.quoi}</span>
     </li>`;
   }).join('');

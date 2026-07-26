@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sampana — desinstallation. Ne touche a AUCUN des services proxifies
-# (Overleaf, JupyterLab, mi-saina...), uniquement a ce que Sampana a installe.
+# (Overleaf, JupyterLab, vos applications...), uniquement a ce que Sampana a installe.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

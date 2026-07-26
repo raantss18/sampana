@@ -5,9 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sampana</title>
 <link rel="stylesheet" href="/sampana.css" />
+<script src="/sampana.js"></script>
 <link rel="icon" href="/logo.svg" type="image/svg+xml" />
 <style>
-  body { display: flex; flex-direction: column; overflow: hidden; }
+  /* `height` et non `min-height` : le cadre doit remplir l'ecran, sans le
+     depasser. Avec min-height seul, la hauteur reste indefinie et le
+     `height:100%` de l'iframe n'a rien contre quoi se calculer. */
+  body {
+    display: flex; flex-direction: column; overflow: hidden;
+    /* `dvh` suit la barre d'URL qui se retracte ; `vh` est le repli pour les
+       navigateurs qui l'ignorent. La seconde declaration ecrase la premiere la
+       ou elle est comprise. */
+    height: 100vh;
+    height: 100dvh;
+  }
 
   .bar {
     flex: 0 0 auto;
@@ -21,8 +32,18 @@
   .bar .spacer { flex: 1 1 auto; }
   .bar .state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--dim); }
 
-  .frame-wrap { flex: 1 1 auto; position: relative; background: var(--bg); }
-  iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+  /* `min-height: 0` est indispensable, pas cosmetique. Un element flex vaut
+     `min-height: auto` par defaut : il refuse de descendre sous la taille de
+     son contenu et DEBORDE du conteneur. Avec `overflow: hidden` sur le corps,
+     le debordement est simplement coupe — d'ou une zone entiere du tableau
+     blanc invisible, sur telephone comme sur ordinateur. */
+  .frame-wrap { flex: 1 1 auto; min-height: 0; position: relative; background: var(--bg); }
+  /* Positionnement absolu plutot que `height: 100%`. Un pourcentage exige un
+     parent a hauteur DEFINIE ; quand la hauteur vient d'un etirement flex, le
+     calcul echoue et l'iframe retombe sur sa hauteur par defaut — environ
+     150 px. C'est ce qui n'affichait l'outil que sur le haut de l'ecran, le
+     reste vide. Cale sur les quatre bords, la question ne se pose plus. */
+  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #fff; }
   :root[data-theme='dark'] iframe { background: var(--bg); }
 
   .veil {
@@ -121,10 +142,7 @@
     return;
   }
 
-  const url =
-    svc.route === 'path'
-      ? svc.path + '/'
-      : `https://${location.hostname}:${svc.port}${svc.openPath}`;
+  const url = urlService(svc, location.hostname);
 
   document.title = `${svc.label} — Sampana`;
   $('#name').textContent = svc.label;
