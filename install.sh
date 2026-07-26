@@ -430,6 +430,14 @@ EOF
             podman build -f services/excalidraw.Containerfile \
                 -t sampana/excalidraw:latest . >/dev/null
         fi
+        # Obsidian : image derivee pour la mise a l'echelle sur ecran tactile.
+        # Sans elle, le bureau s'affiche a sa taille reelle et une tablette n'en
+        # montre qu'un coin.
+        if ! podman image exists localhost/sampana/obsidian:latest; then
+            c_info "Construction de l'image Obsidian (mise a l'echelle tactile)…"
+            podman build -f services/obsidian.Containerfile \
+                -t sampana/obsidian:latest . >/dev/null
+        fi
         c_ok "Conteneurs invites declares"
     else
         c_warn "podman absent : le mode invite ne pourra pas isoler JupyterLab"
