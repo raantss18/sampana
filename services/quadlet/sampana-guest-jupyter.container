@@ -16,7 +16,7 @@ Image=localhost/sampana/guest-jupyter:latest
 # partage. C'est le seul canal entre l'invite et le reste de la machine.
 Network=none
 
-# keep-id : l'uid 1000 du conteneur (jovyan) correspond a raantss sur l'hote,
+# keep-id : l'uid 1000 du conteneur (jovyan) correspond au vôtre sur l'hote,
 # donc la socket est creee avec un proprietaire exploitable. Le repertoire est
 # setgid caddy (voir /etc/tmpfiles.d/sampana-guest.conf), la socket herite donc
 # du groupe caddy et un mode 0660 suffit.

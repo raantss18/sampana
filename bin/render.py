@@ -384,7 +384,7 @@ def caddyfile(env: dict[str, str], services: list[dict], guest: dict | None = No
         ]
 
     # Les routes 'strip' d'abord : un prefixe d'API doit gagner sur le prefixe
-    # applicatif dont il partage le debut (/mi-saina-api vs /mi-saina).
+    # applicatif dont il partage le debut (/monapp-api vs /monapp).
     path_services = [s for s in services if s.get("route") == "path"]
     for svc in sorted(path_services, key=lambda s: (not s.get("strip"), s["path"])):
         p = svc["path"]

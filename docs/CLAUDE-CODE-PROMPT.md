@@ -1,167 +1,202 @@
-# Prompt Claude Code — reconstruire toute la stack
+# Prompt pour un agent IA — installer Sampana
 
-Prompt destiné à **Claude Code**, pour régénérer sur une machine neuve
-l'ensemble : Overleaf CE, assistant IA local, extensions, et le dashboard
-Sampana. Il encode les pièges déjà rencontrés — ne les retirez pas, ils
-coûtent chacun plusieurs heures de débogage.
+Destiné à **Claude Code** ou à tout agent capable d'exécuter des commandes.
+Il décrit Sampana **dans son état actuel, débogué**, et encode les pièges déjà
+rencontrés. Chacun a coûté des heures : ne les retirez pas.
 
-Copiez tout ce qui suit la ligne, adaptez le bloc **Contexte**, et donnez-le
-à Claude Code depuis un terminal sur la machine cible.
+Copiez tout ce qui suit la ligne, adaptez le bloc **Contexte**, et donnez-le à
+l'agent depuis un terminal sur la machine cible.
 
 ---
 
 ## Contexte
 
-Machine : Arch / EndeavourOS, GPU NVIDIA 8 Go de VRAM, Tailscale déjà connecté.
-Adapte les chemins et le nom d'hôte à ce que tu trouves réellement.
+Machine Linux avec systemd. Adapte les chemins, le nom d'hôte et les adresses à
+ce que tu trouves réellement — ne suppose rien.
 
-Objectif : une seule URL HTTPS, accessible depuis n'importe où via Tailscale,
-donnant accès à Overleaf, JupyterLab, mes services locaux et un terminal web,
-avec une assistance IA locale (Ollama) dans Overleaf **et** JupyterLab.
+Objectif : installer **Sampana**, un tableau de bord qui rassemble mes services
+auto-hébergés derrière une seule adresse et un mot de passe unique, accessible
+par Tailscale et par le réseau local, avec un mode invité pour une classe.
 
-## Règle de travail
+## Règles de travail
+
+**Vérifie avant d'agir, et vérifie après.** Plusieurs outils de cette pile
+**renvoient un code de sortie 0 sans avoir rien fait**. Un code de retour ne
+prouve rien : contrôle le contenu réel du fichier, l'en-tête réellement servi, le
+processus réellement en écoute.
 
 **N'exécute aucune commande destructive avant d'avoir inventorié l'existant et
-obtenu ma confirmation.** À chaque étape : vérifie l'état réel, rapporte ce que
-tu trouves, puis agis. Ne suppose jamais qu'une étape a échoué ou réussi sans
-l'avoir testée — plusieurs outils de cette stack **renvoient un code de sortie 0
-en n'ayant rien fait**.
+obtenu ma confirmation.**
+
+**Ne teste pas depuis la machine ce qui doit marcher depuis ailleurs.** Une
+requête vers l'adresse tailnet de la machine, émise depuis cette machine, ne
+traverse pas le tunnel : elle ne reproduit pas ce que vit un téléphone.
+
+**Quand je signale une panne, demande le message d'erreur exact avant de
+diagnostiquer.** « La page ne marche pas » recouvre une boucle de redirection, un
+DNS absent et un serveur éteint — trois causes sans rapport. Une capture d'écran
+vaut mieux qu'une hypothèse.
 
 ## Étape 0 — Inventaire, sans rien modifier
 
-Relève et rapporte-moi :
+Relève et rapporte :
 
-- Ports en écoute : `ss -tlnp`, en distinguant `127.0.0.1` de `0.0.0.0`.
-- Unités systemd **système** *et* **utilisateur** (`systemctl --user`).
-  Beaucoup de services tournent en unité utilisateur ; c'est facile à manquer.
-- Conteneurs Docker **et** Podman (`docker ps -a`, `podman ps -a`).
+- Ports en écoute (`ss -tlnp`), en distinguant `127.0.0.1` d'une adresse
+  routable. Un service qui écoute sur `0.0.0.0` restera accessible **sans** le
+  mot de passe maître.
+- Unités systemd **système** *et* **utilisateur** (`systemctl --user`). Beaucoup
+  de services tournent en unité utilisateur ; c'est facile à manquer.
+- Conteneurs Docker **et** Podman.
 - `loginctl show-user $USER -p Linger` — sans `Linger=yes`, aucune unité
   utilisateur ne démarre au boot.
-- Pour chaque dépôt à installer : la version réellement présente (`VERSION`,
-  `git log`) **comparée** à celle des artefacts pré-construits (`dist/*.run`).
-  Un installeur trouvé dans un dépôt est souvent **plus ancien** que le dépôt
-  lui-même : l'exécuter serait une régression.
+- État de Tailscale, et si les certificats HTTPS sont activés pour le tailnet.
 
-Ne lance un script d'installation qu'après m'avoir montré ce qu'il fait
-(chemin d'installation, ports, unités systemd qu'il écrit).
+## Étape 1 — Installation
 
-## Étape 1 — Overleaf Community Edition
+```bash
+git clone https://github.com/raantss18/sampana.git
+cd sampana
+cp config/sampana.env.example   config/sampana.env
+cp config/services.example.json config/services.json
+```
 
-Utilise `overleaf-toolkit`. Points critiques :
+Remplis `config/services.json` à partir de l'inventaire, puis lance
+`./install.sh`.
 
-- **Épingle `MONGO_VERSION` à une version testée** (ex. `8.0.16`) dans
-  `config/overleaf.rc`. Le tag flottant `mongo:8.0` refuse de démarrer sur les
-  noyaux ≥ 6.19 (`SERVER-121912`) : le conteneur boucle en crash.
-  Vérifie le noyau (`uname -r`) et teste l'image avant.
-- `bin/start` fait `docker compose start` : il échoue si un conteneur a été
-  supprimé. Utilise **`bin/up -d`**, qui initialise aussi le replica set Mongo.
-- `SIBLING_CONTAINERS_ENABLED=true` n'existe pas en Community Edition → `false`.
-- **`tlmgr install scheme-full` sort en code 0 sans rien installer** si
-  `tlmgr update --self` n'a pas été lancé avant. Après coup, vérifie
-  systématiquement : `tlmgr list --only-installed | wc -l` (~5000 attendu).
-- TeX Live vit **dans le conteneur, pas dans un volume** : une recréation
-  détruit les heures de téléchargement. Fige avec `docker commit` puis
-  `OVERLEAF_IMAGE_NAME`, et **prouve-le** en recréant le conteneur et en
-  recomptant les paquets.
-- `grunt user:create-admin` n'existe plus. Utilise
-  `node modules/server-ce-scripts/scripts/create-user.mjs --admin --email=...`.
-- Avec `OVERLEAF_SECURE_COOKIE=true`, le login **exige** HTTPS.
+**Le choix décisif est `route`, service par service :**
 
-## Étape 2 — Backend d'assistance IA (FastAPI + Ollama)
+- `path` — l'application accepte un préfixe (`base_url`, `basePath`). Servie sous
+  `https://hôte/nom/`.
+- `port` — l'application exige la racine. Servie sur son propre port.
 
-Service local exposant `/suggest` (modèle rapide) et `/diagnose` (modèle
-capable), plus `/health`, avec un paramètre `mode` (`latex` | `python` | `sage`)
-sélectionnant le prompt système.
-
-- **Vérifie quels modèles sont réellement installés** (`ollama list`) avant
-  d'écrire quoi que ce soit. Ne code pas contre des modèles absents.
-- Ollama tourne peut-être en unité **utilisateur**. Si une unité *système*
-  homonyme existe, elle bouclera en `address already in use` : désactive-la.
-- Réponses en sorties structurées (`format` = schéma JSON) + `think: false`
-  pour les modèles à raisonnement. **Le parsing doit rester tolérant** :
-  malgré le schéma, les modèles renvoient tantôt un bloc ```json, tantôt une
-  **liste** au premier niveau au lieu de `{"findings": [...]}`.
-- Demande au modèle des clés **ASCII** et traduis-les ensuite : les clés
-  accentuées dégradent nettement la fiabilité des petits modèles.
-- N'écoute que sur `127.0.0.1`. Renvoie un **503 explicite** si Ollama est
-  injoignable ou si un modèle manque.
-- Fournis un script de test envoyant du code volontairement erroné et
-  **vérifiant** que l'erreur est détectée.
-
-## Étape 3 — Extension navigateur pour Overleaf (Manifest V3)
-
-- Overleaf utilise **CodeMirror 6**. L'`EditorView` s'obtient via
-  `document.querySelector('.cm-content').cmView.view`, ce qui **impose
-  `"world": "MAIN"`** dans le content script : un monde isolé ne voit pas les
-  propriétés JS des nœuds DOM. Prévois un pont `postMessage` entre les deux.
-- **Fais les requêtes réseau depuis le service worker**, pas depuis le content
-  script : cela élimine d'un coup le blocage mixed-content et le préflight CORS.
-- Double les raccourcis : `chrome.commands` **et** un `keydown` en phase de
-  capture, car Chromium réserve déjà certaines combinaisons.
-- Affiche un diff avant/après et un bouton *Appliquer* par suggestion. Les
-  diagnostics sont fiables, **les corrections automatiques ne le sont pas** :
-  l'utilisateur doit relire.
-
-## Étape 4 — Extension JupyterLab
-
-- Le mode se déduit du kernel actif (nom contenant `sage` → mode `sage`).
-- Trois écarts nécessaires au template officiel, sinon le build échoue :
-  - `.yarnrc.yml` → `nodeLinker: node-modules` (`tsc` ne résout pas les modules
-    en mode Plug'n'Play, qui est le défaut de `jlpm`) ;
-  - `skipLibCheck: true` (des `.d.ts` de dépendances exigent TypeScript ≥ 5.7) ;
-  - `moduleResolution: "bundler"` (requis par `@jupyterlab/lsp`).
-- Sur Arch, `pip install -e .` échoue (PEP 668, Python « externally managed »).
-  Plutôt que `--break-system-packages`, **lie symboliquement** le dossier
-  `labextension` construit dans
-  `~/.local/share/jupyter/labextensions/<nom>` : c'est ce que fait
-  `jupyter labextension develop`.
-- Vérifie avec `jupyter labextension list` (attendu : `enabled OK`), puis que
-  le `remoteEntry.js` est bien servi en HTTP.
-
-## Étape 5 — Dashboard Sampana
-
-Clone <https://github.com/raantss18/sampana>, remplis `config/services.json`
-à partir de l'inventaire de l'étape 0, puis lance `./install.sh`.
+Tout mettre en sous-chemin **ne marche pas** : beaucoup d'applications fabriquent
+des adresses absolues depuis la racine.
 
 Décide `route` et `embed` **par mesure, pas par supposition** :
 
 ```bash
-curl -sD - -o /dev/null http://127.0.0.1:PORT/ | grep -iE 'x-frame-options|frame-ancestors'
+curl -sD - -o /dev/null http://127.0.0.1:PORT/ | grep -iE 'x-frame-options|content-security-policy'
 ```
 
-Rappels que le générateur applique déjà, à ne pas contourner :
+Un seul en-tête ne suffit pas à conclure, et il faut suivre toute la chaîne de
+redirection : `bin/check-embed.py <url>` fait les deux.
 
-- Jamais de bloc `http://127.0.0.1:PORT` dans le Caddyfile — Caddy filtrerait
-  sur le `Host` et répondrait **200 vide** à tout ce qui vient de Tailscale.
-  Utilise `:PORT` + `bind 127.0.0.1`.
-- Jamais `admin off` (casse `systemctl reload caddy`).
-- Jamais de `redir /x /x/` devant Next.js (boucle 308 infinie).
-- Les préfixes d'API passent **avant** les préfixes applicatifs qu'ils
-  préfixent.
+## Étape 2 — Les pièges, dans l'ordre où ils frappent
 
-Configurations à appliquer côté services :
-- JupyterLab : `c.ServerApp.base_url`, plus `allow_origin` = l'URL Tailscale,
-  sans quoi les websockets (donc l'exécution des cellules) sont refusés.
-- Next.js : `basePath` + `assetPrefix`, activés par variable d'environnement et
-  injectés par un **drop-in** systemd (l'unité principale est réécrite par
-  l'installeur de l'app).
-- Syncthing : GUI en **HTTPS** (donc `https+insecure` en amont) et
-  `insecureSkipHostcheck` pour accepter un `Host` distant.
+### Caddy
 
-## Étape 6 — Vérification, sans complaisance
+- **N'écris jamais un bloc `http://127.0.0.1:PORT`.** Caddy filtrerait sur le
+  `Host` ; Tailscale transmet le nom `.ts.net`, aucun site ne correspondrait, et
+  Caddy répondrait **200 avec un corps vide** sur toutes les URL. Les tests en
+  local passent, ceux par Tailscale non. Écris `:PORT` avec `bind`.
+- **`forward_auth` s'applique AVANT les blocs `handle`.** Sans matcher excluant
+  `/auth/*`, la page de connexion se protège elle-même et le navigateur boucle
+  indéfiniment. Tout bloc protégé doit router `/auth/*` **et** l'exclure.
+- **Ne mets pas `admin off`** : `systemctl reload caddy` passe par l'API
+  d'administration locale.
+- **Valide avant d'installer, et vérifie que le rechargement a réussi.** Un
+  rechargement raté n'applique rien et garde l'ancienne configuration **en
+  silence** : le fichier sur le disque est à jour, le service sert l'ancien.
+- **Le durcissement systemd interdit à Caddy d'écrire sous `/var/log`**, quels
+  que soient le propriétaire et les droits du dossier. N'ajoute pas de journal de
+  fichier sans l'avoir testé — sinon plus rien ne se recharge.
+- **Un bloc adressé par le seul port devient la politique de certificats par
+  défaut.** Si l'un demande un certificat et les autres non, Caddy refuse de
+  démarrer. Déclare `cert_issuer internal` en global.
 
-- Teste **via l'URL Tailscale**, jamais seulement en `localhost` : le piège du
-  `Host` Caddy ne se voit que par là. Inclus une URL inexistante dans tes tests :
-  elle **doit** renvoyer 404. Si elle renvoie 200, ton routage est cassé même si
-  tout le reste semble marcher.
-- Suis les redirections (`curl -L`) et vérifie l'URL finale.
-- Vérifie que rien n'écoute sur l'IP du LAN.
-- `systemctl is-enabled` sur chaque unité, `Linger=yes`, et propose-moi un
-  redémarrage réel : c'est la seule preuve que la stack remonte seule.
-- Dis-moi explicitement **ce que tu n'as pas pu tester** (typiquement : les
-  extensions navigateur, qui exigent une interaction humaine).
+### Tailscale
 
-## Livrables
+- `tailscale serve` filtre sur le **nom d'hôte** : l'adresse `100.x` brute ne
+  passe pas par lui, elle atteint directement ce qui écoute.
+- **Le port publié et le port d'écoute doivent différer.** Le démon tient déjà
+  `100.x:PORT` pour publier ; si Caddy tentait `0.0.0.0:PORT`, la collision
+  l'empêcherait de démarrer et emporterait tout le tableau de bord. Fais écouter
+  Caddy ailleurs et pointe `tailscale serve` dessus.
+- **Funnel n'accepte que 443, 8443 et 10000.** Trois créneaux, pas un de plus.
+- Un amont servi en TLS par une autorité locale se déclare `https+insecure://`
+  — syntaxe propre à `tailscale serve`. Côté Caddy, c'est un bloc `transport`.
+- **Si un nom `.ts.net` ne résout pas** sur un appareil, ce n'est presque jamais
+  le serveur : l'appareil court-circuite le DNS de Tailscale (DNS privé Android,
+  DNS sécurisé du navigateur). Compare `dig @1.1.1.1 <nom>` et
+  `getent hosts <nom>` : le DNS public renvoie l'entrée publique, où seuls les
+  ports Funnel répondent.
 
-Documentation indiquant : URL finale, port de chaque service, emplacement des
-sauvegardes, procédure de restauration, et l'ordre de démarrage des services.
+### Navigateur
+
+- **Sers tes pages avec `Cache-Control: no-cache`.** Sans consigne, le navigateur
+  applique son heuristique et garde l'ancienne version : un correctif déployé
+  reste invisible, et rien ne le signale. Limite la consigne à tes fichiers, pour
+  ne pas priver de cache les paquets JavaScript des applications proxifiées.
+- **`X-Frame-Options: DENY` interdit le cadre même depuis la même origine.** Un
+  site qui héberge à la fois le cadre et les outils affichés dedans doit poser
+  `SAMEORIGIN`.
+- **Une iframe dimensionnée par un pourcentage** exige un parent à hauteur
+  définie. Quand celle-ci vient d'un étirement flex, le calcul échoue et l'iframe
+  retombe à sa hauteur par défaut, 150 px. Cale-la sur les quatre bords.
+- **Un élément flex vaut `min-height: auto`** : il refuse de descendre sous la
+  taille de son contenu et déborde. Pose `min-height: 0`.
+- **Certaines applications exigent un contexte sécurisé** et refusent de démarrer
+  en HTTP — tout ce qui diffuse en WebCodecs, par exemple. Sers-les en HTTPS même
+  en local, avec l'autorité locale de Caddy et un certificat émis à la demande :
+  l'adresse de la machine change d'un réseau à l'autre.
+
+### Authentification
+
+- **Ne bloque jamais sur un mot de passe correct.** Derrière un tunnel, tout le
+  trafic partage une adresse source : un verrouillage dur offrirait à un inconnu
+  le moyen de fermer la porte au propriétaire. Ralentis, ne bloque pas.
+- **Si tu ajoutes un verrouillage par inactivité**, la page de connexion doit
+  consulter la révocation, sans quoi elle croira valide un jeton que la
+  vérification rejette : chacune renverra vers l'autre, boucle infinie, sans accès
+  au formulaire. Seul un effacement des cookies débloque.
+- **Échappe toute valeur extérieure** insérée dans une page. Le cas grave n'est
+  pas la page publique mais la page d'administration : un nom saisi par un
+  utilisateur non authentifié y exécuterait du code avec la session maître.
+
+### Conteneurs
+
+- Un conteneur **sans réseau** ne peut pas écouter sur un port : expose une
+  socket Unix.
+- Une image officielle est un paquet **déjà compilé**. Y modifier une chaîne
+  demande une substitution à la construction — et cette substitution doit
+  **échouer bruyamment** si le motif a disparu, sinon tu construis une image
+  silencieusement inchangée.
+- **Un état à moitié installé est pire que les deux extrêmes.** Désactiver
+  l'extension serveur d'un greffon en laissant sa partie navigateur produit des
+  pannes plus obscures que de tout garder ou tout retirer.
+
+## Étape 3 — Vérification
+
+Ne conclus pas sans avoir vérifié, **sur les deux chemins d'accès** — par
+Tailscale et par le réseau local :
+
+- Chaque service répond (302 = redirection vers la connexion, donc joignable et
+  protégé ; 000 = injoignable).
+- La page de connexion s'affiche depuis **chaque** port d'outil, pas seulement
+  depuis le tableau de bord.
+- Les fichiers servis sont **identiques** à ceux du dépôt — compare le contenu,
+  pas les dates.
+- La sonde de santé voit tous les services déclarés : un service absent du
+  fichier de cibles n'est jamais interrogé et s'affiche éteint.
+- Après redémarrage de la machine, tout revient seul.
+- Traversée de chemin sur le dossier partagé : essaie `../`, les formes encodées
+  et les doublements.
+
+## Étape 4 — Ce qu'il ne faut pas faire
+
+- **Ne réinstalle pas les extensions de collaboration JupyterLab** sur l'image en
+  service. Elles exigent une version antérieure, et le décalage détourne le canal
+  du noyau : résultats absents, « File ID error », chargement sans fin.
+- **Ne publie pas le tableau de bord en Funnel** sans me le demander : la page de
+  connexion deviendrait atteignable depuis tout Internet.
+- **N'utilise pas `rsync --delete`** vers la racine servie : elle contient des
+  fichiers engendrés qui n'existent pas dans le dépôt.
+
+## Rapport attendu
+
+À la fin, dis-moi :
+
+1. Ce qui fonctionne, avec la preuve (code HTTP, contenu comparé).
+2. Ce qui ne fonctionne pas, sans l'enrober.
+3. Ce que tu as laissé de côté, et pourquoi.
+4. Ce qui reste à faire de mon côté — mots de passe, réglages hors dépôt.

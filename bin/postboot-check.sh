@@ -21,8 +21,8 @@ for u in docker overleaf caddy latex-ai-assist tailscaled; do
 done
 
 head_ "Unites utilisateur"
-for u in ollama jupyterlab ttyd sampana-auth sampana-health \
-         mi-saina-backend mi-saina-frontend lean4web syncthing open-webui; do
+# Adaptez cette liste aux unites que VOUS avez declarees dans services.json.
+for u in ttyd sampana-auth sampana-health sampana-guest; do
     s="$(systemctl --user is-active "$u" 2>&1)"
     [ "$s" = active ] && ok "$(printf '%-20s' "$u")$s" || bad "$(printf '%-20s' "$u")$s"
 done

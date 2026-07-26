@@ -4,7 +4,9 @@
 
 # Sampana
 
-**Un point d'entrée unique, en HTTPS, pour tous les services auto-hébergés d'une machine — accessible partout dans le monde via Tailscale, exposé à personne d'autre.**
+**Tous vos services auto-hébergés derrière une seule adresse et un seul mot de
+passe — plus un mode classe qui les ouvre à des invités, sans compte et sans
+trace.**
 
 *« Sampana » : branche, ramification, en malgache.*
 
@@ -14,426 +16,361 @@
 
 ## Ce que c'est
 
-Un dashboard qui rassemble vos services locaux (JupyterLab, Overleaf, un
-assistant IA, un terminal…) derrière **une seule URL HTTPS**, servie par Caddy
-et exposée uniquement à votre tailnet.
+Un tableau de bord qui rassemble les services d'une machine — notebooks, serveur
+LaTeX, assistant IA, terminal, ce que vous voulez — derrière une seule porte
+gardée par un mot de passe unique.
 
-- **Rien n'écoute sur le LAN.** Caddy est lié à `127.0.0.1` ; l'exposition passe
-  exclusivement par `tailscale serve`, qui fournit aussi le TLS.
-- **État de santé en direct.** Chaque service est sondé, le dashboard affiche
-  en ligne / dégradé / hors ligne avec la latence.
-- **Bouton retour partout.** Les services s'ouvrent dans un shell avec un
-  bandeau Sampana et un bouton *Retour*.
-- **Un seul mot de passe maître.** Une connexion, et tous les services sont
-  ouverts — y compris ceux servis sur leur propre port. Aucun mot de passe
-  interne à saisir ensuite.
-- **Terminal web** intégré, plus Tailscale SSH.
-- **Déclaratif.** Un fichier JSON décrit les services ; le Caddyfile, le
-  manifeste web et les commandes `tailscale serve` en sont dérivés.
-- **Idempotent.** `./install.sh` peut être relancé sans risque.
+Et, en un clic, un **mode invité** : vos outils deviennent accessibles à un
+groupe de personnes sur le réseau local, sans compte, sans accès à vos fichiers,
+et tout disparaît à la fermeture.
 
-## Le problème que ça résout
+Sampana est né pour une salle de classe. Il sert aussi bien à un poste personnel
+qu'on veut atteindre depuis son téléphone.
 
-Tout mettre sous des sous-chemins (`/overleaf/`, `/jupyter/`…) **ne fonctionne
-pas** : beaucoup d'applications génèrent des URL absolues depuis la racine et
-cassent derrière un préfixe.
+## Ce qu'il fait
 
-Sampana assume une **architecture hybride**, décrite service par service dans
-la configuration :
+- **Une adresse, un mot de passe.** Les services n'ont plus de mot de passe
+  propre ; Sampana les garde en amont. Une connexion vaut pour tous.
+- **Accessible de partout, exposé à personne.** Par Tailscale hors de chez vous,
+  par le réseau local en salle — y compris sur un partage de connexion sans
+  Internet.
+- **Mode classe.** Un interrupteur, un code de séance à dicter, une durée. Les
+  invités arrivent sur un choix d'outils ; à la fin, tout est effacé.
+- **Feuille de présence vivante.** Qui est connecté, sur quel outil, depuis
+  combien de temps, qui lève la main. Historique, export CSV, travail de chacun
+  en ZIP.
+- **Dossier partagé.** Vous y déposez fichiers et dossiers ; les invités les
+  lisent seulement. Un double-clic ouvre l'outil correspondant.
+- **Partage en direct.** Un bouton par outil publie une instance ou un fichier
+  vers les invités, dans les deux sens.
+- **État de santé** de chaque service, en direct.
+- **Déclaratif.** Un fichier JSON décrit vos services ; toute la configuration en
+  est dérivée. `./install.sh` est rejouable sans risque.
 
-| `route` | Pour qui | Résultat |
-|---|---|---|
-| `path` | Apps supportant un préfixe (`base_url`, `basePath`) | `https://hôte/jupyter/` |
-| `port` | Apps exigeant la racine | `https://hôte:10443/` |
+## Ce dont vous avez besoin
 
-Le champ `embed` indique si l'app tolère une iframe. Sinon, sa carte ouvre un
-nouvel onglet — le dashboard reste alors accessible dans l'onglet précédent.
+- Linux avec **systemd**
+- **Caddy**, **Python 3.11+** (aucune dépendance : bibliothèque standard), `curl`
+- **Tailscale**, pour y accéder hors de votre réseau
+- **Podman**, pour le mode invité et les outils conteneurisés
+- `ttyd` si vous voulez le terminal web
+- Une carte **NVIDIA** avec `nvidia-container-toolkit`, uniquement si vous voulez
+  le GPU dans les notebooks
 
-## Installation
+Sur Arch et dérivées :
+`sudo pacman -S --needed caddy ttyd tailscale python podman`
+
+Les **certificats HTTPS Tailscale** doivent être activés pour votre tailnet :
+<https://login.tailscale.com/admin/dns> → *HTTPS Certificates* → **Enable**.
+L'installation s'arrête avec un message clair si ce n'est pas fait.
+
+## Démarrer
 
 ```bash
 git clone https://github.com/raantss18/sampana.git
 cd sampana
-cp config/sampana.env.example      config/sampana.env
-cp config/services.example.json    config/services.json
-$EDITOR config/services.json       # décrivez vos services
+
+cp config/sampana.env.example   config/sampana.env
+cp config/services.example.json config/services.json
+
+$EDITOR config/services.json    # décrivez vos services
 ./install.sh
 ```
 
-Prérequis : `caddy`, `ttyd`, `tailscale`, `python3`, `curl`.
-Sur Arch / EndeavourOS : `sudo pacman -S --needed caddy ttyd tailscale python`
+L'installation demande un mot de passe maître à la première exécution et n'en
+garde qu'une empreinte scrypt. Elle affiche ensuite l'adresse de votre tableau de
+bord.
 
-Les **certificats HTTPS Tailscale** doivent être activés pour votre tailnet :
-<https://login.tailscale.com/admin/dns> → *HTTPS Certificates* → **Enable**.
-`install.sh` s'arrête avec un message clair si ce n'est pas fait.
+`config/sampana.env` et `config/services.json` ne sont **pas versionnés** : ils
+décrivent votre machine.
 
-`config/sampana.env` et `config/services.json` sont **non versionnés** : ils
-contiennent votre nom d'hôte et votre topologie.
+Pour tout retirer : `./uninstall.sh`. Il ne touche qu'à ce que Sampana a
+installé, restaure le `Caddyfile` précédent, et laisse vos services intacts.
 
-## Déclarer un service
+## Décrire un service
 
-```jsonc
+```json
 {
   "id": "jupyter",
   "label": "JupyterLab",
-  "desc": "Notebooks et environnement ML.",
-  "icon": "notebook",
-  "route": "path",              // "path" ou "port"
+  "desc": "Notebooks Python.",
+  "route": "path",
   "path": "/jupyter",
   "upstream": "127.0.0.1:8888",
-  "embed": true,                // false si X-Frame-Options / frame-ancestors
-  "trailing_slash": true,       // le backend exige le / final
-  "probe": "/",                 // chemin sondé pour l'état de santé
-  "probe_expect": [200, 401]    // codes considérés comme sains
+  "embed": true
 }
 ```
 
-Options : `strip` (retire le préfixe, pour une API), `hidden` (proxifié mais
-masqué du dashboard), `open_path`
-(ex. `/docs`), `upstream_scheme` (`https+insecure` si le backend est en TLS
-auto-signé, comme Syncthing).
+Le choix qui compte est `route` :
 
-**Ne devinez pas `embed`, mesurez-le :**
-```bash
-bin/check-embed.py
-```
-Le script compare chaque déclaration à la réalité et signale les écarts.
-`install.sh` le lance automatiquement et vous avertit.
-
-Il faut regarder **`X-Frame-Options` *et* `frame-ancestors`** — une application
-peut n'envoyer que l'un des deux — et **suivre les redirections** : Overleaf
-autorise l'encadrement sur sa page de connexion mais le refuse sur la 302 qui y
-mène. Un service encadré à tort n'affiche qu'un cadre blanc.
-
-## Réglages par défaut
-
-`config/sampana.env` — tout est modifiable, ces valeurs fonctionnent telles quelles.
-
-| Réglage | Défaut | Rôle |
+| `route` | Pour quelles applications | Adresse produite |
 |---|---|---|
-| `SAMPANA_HOST` | *détecté* | Nom Tailscale de la machine |
-| `CADDY_PORT` | `8088` | Écoute locale du dashboard |
-| `CADDY_BIND` | `0.0.0.0` | Rend le dashboard joignable depuis le LAN, **mot de passe toujours exigé** |
-| `HEALTH_PORT` | `8089` | Sonde de santé |
-| `TTYD_PORT` | `7681` | Terminal web |
-| `WEB_ROOT` | `/srv/sampana` | Fichiers statiques servis par Caddy |
-| `AUTH_ENABLED` | `1` | `0` supprime toute authentification |
-| `AUTH_PORT` | `8090` | Service d'authentification |
+| `path` | celles qui acceptent un préfixe (`base_url`, `basePath`) | `https://hôte/jupyter/` |
+| `port` | celles qui exigent la racine | `https://hôte:10443/` |
 
-Mode invité :
+Tout mettre sous des sous-chemins **ne marche pas** : beaucoup d'applications
+fabriquent des adresses absolues depuis la racine et cassent derrière un préfixe.
+Sampana assume donc une architecture mixte, choisie service par service.
 
-| Réglage | Défaut | Rôle |
-|---|---|---|
-| `GUEST_ENABLED` | `1` | Installe le mode invité |
-| `GUEST_PORT` | `8081` | Portail invité, **seul port lié à une adresse routable** |
-| `GUEST_GATE_PORT` | `8092` | Service du portail (boucle locale) |
-| `GUEST_FUNNEL_PORT` | `10000` | Port publié sur Internet |
-| `GUEST_TTL` | `7200` | Durée d'une séance, en secondes (réglable au dashboard) |
-| `GUEST_SHARE_DIR` | `/srv/sampana-partage` | Dossier partagé, lié depuis `~/sampana-partage` |
-| `GUEST_LATEX_EMAIL` | `invite@sampana.local` | Compte LaTeX Lab partagé |
-
-Autres valeurs, non configurables par fichier :
-
-| | Défaut | Où le changer |
-|---|---|---|
-| Verrouillage par inactivité | **15 min** | Dashboard → Configuration |
-| Session absolue | 30 jours | `ttl` dans `auth.json` |
-| Inactivité d'un étudiant | 3 min | `IDLE_AFTER`, `services/guest.py` |
-| Taille max d'un fichier déposé | 200 Mo | `MAX_UPLOAD`, `services/guest.py` |
-| Purge des projets LaTeX Lab | 03:00 | `sampana-purge-guest.timer` |
-| Mémoire du JupyterLab invité | 12 Gio, 8 cœurs | Quadlet `sampana-guest-jupyter` |
-
-**Il n'y a pas de mot de passe maître par défaut.** `install.sh` le demande au
-premier lancement, ou en génère un et l'affiche si aucun terminal n'est
-disponible. Seule une empreinte scrypt est conservée : un mot de passe perdu
-ne se récupère pas, il se remplace (`rm ~/.config/sampana/auth.json && ./install.sh`).
-
-## Accéder au tableau de bord
-
-Trois chemins, tous derrière le mot de passe maître :
-
-| Depuis | Adresse | Internet requis |
-|---|---|---|
-| N'importe où | `https://hôte.tailnet.ts.net/` | oui (Tailscale) |
-| Tailscale, sans MagicDNS | `http://<ip-tailscale>:8088` | oui (Tailscale) |
-| Réseau local | `http://<ip-locale>:8088` | **non** |
-| Partage de connexion | `http://10.42.0.1:8088` | **non** |
-
-La deuxième ligne est un **filet de sécurité** : `tailscale serve` filtre sur le
-nom d'hôte, donc l'IP Tailscale nue ne passe pas par lui. Caddy, lui, écoute
-sur toutes les interfaces — cette adresse contourne à la fois `serve` et
-MagicDNS. Utile quand le nom `.ts.net` ne résout plus, par exemple lorsqu'un
-relais Tailscale est injoignable. Le trafic reste chiffré : il circule dans le
-tunnel WireGuard, même sans TLS par-dessus.
-
-Le port 80 redirige vers HTTPS : taper le nom d'hôte sans schéma fonctionne.
-Sans cette règle, le navigateur complète en `http://`, que Tailscale ne sert
-pas, et affiche un refus de connexion sans explication. Le servir *en clair*
-serait pire : le cookie de session est marqué `Secure` pour ce nom, il ne
-serait jamais conservé et la connexion échouerait en boucle.
-
-Les deux dernières fonctionnent **sans Tailscale et sans Internet** : Caddy
-écoute sur toutes les interfaces (`CADDY_BIND=0.0.0.0`) et le mot de passe
-reste exigé. C'est le mode à utiliser en salle.
-
-L'adresse exacte est affichée dans les consignes du panneau *Mode invité*,
-lues côté serveur — l'ouvrir via Tailscale afficherait sinon le nom `.ts.net`,
-qui ne répond pas hors du tailnet.
-
-En HTTP simple, aucun certificat n'est valable pour une adresse IP privée : le
-cookie de session est donc émis sans le drapeau `Secure`, faute de quoi le
-navigateur l'ignorerait et la connexion échouerait en boucle.
-
-## Configuration depuis le dashboard
-
-Une section **Configuration** permet de changer le mot de passe maître, le
-délai d'inactivité, la durée de séance par défaut, et **d'ajouter ou retirer
-des outils** sans toucher aux fichiers.
-
-L'ajout écrit dans `config/services.json` puis appelle un helper privilégié qui
-régénère, **valide**, puis recharge Caddy — et restaure la configuration
-précédente si le rechargement échoue. Sans cette validation, une erreur de
-saisie rendrait le dashboard inaccessible, donc irréparable depuis l'interface.
-
-Ce helper est le seul point par lequel l'interface obtient des droits root. Il
-vit hors du dépôt, appartient à `root`, n'accepte aucun argument, et une règle
-sudo ne vise que lui. Il n'accorde rien de plus qu'un shell `ttyd` — que le mot
-de passe maître ouvre déjà.
-
-## Utilisation
-
-| Raccourci | Effet |
+| Champ | Effet |
 |---|---|
-| `/` | Focus sur la recherche |
-| `Entrée` | Ouvre le premier résultat |
-| `Échap` | Efface la recherche · revient au dashboard depuis un service |
+| `embed` | l'application tolère d'être affichée dans un cadre |
+| `hidden` | service réel, mais absent du tableau de bord |
+| `strip` | retire le préfixe avant de transmettre |
+| `trailing_slash` | ajoute la barre finale (à éviter devant Next.js, voir plus bas) |
+| `secure_context` | sert ce service en HTTPS même en local |
+| `collab` | branche un relais de collaboration en direct |
 
-## Architecture
+Pour trancher `embed` : `bin/check-embed.py <url>` suit toute la chaîne de
+redirection et vérifie les deux en-têtes qui gouvernent l'encadrement.
 
-```
-                    tailnet (WireGuard)
-                            │
-                    tailscale serve ── TLS
-                            │
-        ┌───────────────────┼────────────────────┐
-        ▼                   ▼                    ▼
-   :443 → Caddy      :10443 → Overleaf   :10445 → Syncthing
-        │                (racine)             (racine)
-        ├── /            dashboard statique
-        ├── /app.html    shell (bandeau + bouton retour)
-        ├── /auth/*      connexion (mot de passe maître)
-        ├── /api/status  sonde de santé (stdlib Python)
-        ├── /jupyter/    → 127.0.0.1:8888
-        ├── /mi-saina/   → 127.0.0.1:3001
-        └── /terminal/   → ttyd
-```
+## Le mode invité
 
-## Pièges rencontrés
+Depuis le tableau de bord : une durée, un interrupteur. Sampana affiche un guide
+à dicter — une adresse et un code de séance, tous deux renouvelés à chaque fois.
 
-Chacun a coûté du temps ; ils sont désormais évités par construction.
+**Ce que voient les invités** : un choix d'outils, le dossier partagé en lecture
+seule, un éditeur de notes, un tableau blanc. Ils sont prévenus 10 puis 5 minutes
+avant la fermeture, y compris depuis l'intérieur d'un outil.
 
-- **Un bloc Caddy `http://127.0.0.1:8088` filtre sur le `Host`.** Tailscale
-  transmet `Host: hôte.ts.net`, aucun site ne correspond, et Caddy répond
-  **200 avec un corps vide** sur *toutes* les URL. Les tests en localhost
-  passent, ceux via Tailscale non. Solution : `:8088` + `bind 127.0.0.1`.
-- **`admin off` casse `systemctl reload caddy`** : le reload passe par l'API
-  admin locale.
-- **Pas de `redir /x /x/`** devant Next.js : il retire le slash final, les deux
-  règles se renvoient la balle (308 infini). Sampana ne génère cette
-  redirection que si `trailing_slash` est déclaré.
-- **Ordre des routes** : un préfixe d'API (`/mi-saina-api`) doit être déclaré
-  avant le préfixe applicatif dont il partage le début. Le générateur trie.
-- **`tailscale cert` refuse `/dev/null`** (« not a regular file ») : utiliser
-  un fichier régulier pour tester la disponibilité des certificats.
-- **Ports différents = origines différentes.** Une app en `frame-ancestors
-  'self'` sur `:10445` ne peut pas être encadrée depuis `:443`.
-- **Un seul en-tête ne suffit pas à conclure.** Overleaf n'a pas de
-  `frame-ancestors` sur `/login`, mais envoie `X-Frame-Options: SAMEORIGIN` sur
-  toutes ses réponses et `frame-ancestors 'none'` sur la redirection. Vérifier
-  les deux en-têtes, sur toute la chaîne de redirection — d'où `check-embed.py`.
+**Ce qu'ils ne voient pas** : vos fichiers.
 
-## Authentification
-
-Un **mot de passe maître unique** protège l'ensemble. `install.sh` le demande
-à la première exécution et n'en conserve qu'une empreinte **scrypt** dans
-`~/.config/sampana/auth.json` (mode 600) — jamais le mot de passe en clair.
-
-Pourquoi une session par cookie plutôt que Basic Auth : les cookies sont
-attachés au **nom de domaine et ignorent le port**. Une seule connexion vaut
-donc pour `https://hôte/` *et* `https://hôte:10443/`. Basic Auth aurait
-redemandé le mot de passe sur chaque port, chacun étant une origine distincte.
-
-Caddy interroge le service d'authentification via `forward_auth` avant chaque
-requête. Les pages de connexion sont exclues par un matcher : sans cela,
-`/auth/login` se protégerait elle-même et le navigateur bouclerait sur la
-redirection.
-
-```bash
-rm ~/.config/sampana/auth.json && ./install.sh   # changer le mot de passe
-```
-
-Session valable 30 jours (`ttl` dans `auth.json`). Déconnexion : `/auth/logout`.
-
-### Ce que Sampana ne protège pas
-
-Les services n'ont **plus de mot de passe propre** : ils sont protégés en
-amont. Cela suppose qu'ils ne soient joignables que via Sampana.
-Vérifiez qu'aucun n'écoute sur une adresse routable :
-
-```bash
-ss -tlnp | grep -v '127.0.0.1'
-```
-
-Un service qui écoute sur `0.0.0.0` reste accessible depuis le LAN **sans**
-passer par le mot de passe maître.
-
-Enfin, `AUTH_ENABLED=0` désactive toute authentification : à ne faire que si
-chaque service porte déjà la sienne.
-
-## Mode invité
-
-Un second monde, étanche du premier : **sans compte, sans persistance**, pour
-les étudiants. Il s'ouvre et se ferme depuis le tableau de bord.
-
-| | Session normale | Session invitée |
+|  | Session normale | Session invitée |
 |---|---|---|
 | Entrée | mot de passe maître | prénom, nom, code de séance |
-| Cookie | `sampana_session` | `sampana_guest` |
-| Portée | tous les services, dont un shell | JupyterLab, Lean4Web, LaTeX Lab, assistant IA, dossier partagé |
+| Portée | tous les services, dont un terminal | notebooks, LaTeX, Lean, IA, dossier partagé |
 | Persistance | complète | aucune |
 
-Les deux cookies portent des **clés de signature distinctes**. C'est ce qui
-empêche un jeton invité d'être accepté comme session normale — donc d'ouvrir
-un shell. Sans cela, connaître le code de séance suffirait : il se dit à voix
+Les deux sessions portent des **clés de signature distinctes**. C'est ce qui
+empêche un jeton invité d'être accepté comme session normale — donc d'ouvrir un
+terminal. Sans cela, connaître le code de séance suffirait : il se dit à voix
 haute.
 
 ### Isolation
 
-Le JupyterLab invité tourne **sans aucune interface réseau** (`--network none`).
-Un notebook exécute du code arbitraire, et l'instance peut être publiée sur
-Internet : sans réseau, ce code ne peut ni miner, ni relayer d'attaque depuis
-votre IP, ni joindre vos autres services sur `127.0.0.1` — qui n'ont plus de
-mot de passe propre et comptent sur Sampana en amont.
+Le JupyterLab invité tourne **sans aucune interface réseau**. Un notebook exécute
+du code arbitraire, et l'instance peut être publiée : sans réseau, ce code ne
+peut ni miner, ni relayer d'attaque depuis votre adresse, ni joindre vos autres
+services sur `127.0.0.1` — qui n'ont plus de mot de passe propre.
 
 Conséquence : le conteneur ne peut pas écouter sur un port. Il expose une
 **socket Unix** que Caddy vient chercher. Deux exceptions, étroites et
-explicites :
+explicites : une socket vers l'assistant IA local, et le dossier partagé monté en
+lecture seule.
 
-- une socket vers **Ollama**, pour que `jupyter-ai` fonctionne ;
-- le **dossier partagé**, monté en lecture seule.
+L'espace de travail vit en mémoire et disparaît à la fermeture.
 
 ### Séance
 
-Chaque ouverture génère un **code et un mot de passe LaTeX Lab neufs**, ainsi
-qu'une nouvelle clé de signature : les jetons de la séance précédente cessent
-d'être honorés. Le code porte la date pour être dictable, mais se termine par
-des chiffres tirés au sort — une valeur calculée depuis la seule date serait
-devinable, or le portail est joignable depuis Internet quand le Funnel est
-ouvert.
-
-La durée se choisit à l'ouverture. Les étudiants sont prévenus **10 puis 5
-minutes** avant la fin, y compris depuis l'intérieur d'un outil.
-
-### LaTeX Lab garde son propre mot de passe
-
-C'est la seule exception au mot de passe unique, et elle est structurelle :
-Overleaf gère ses propres comptes et n'expose aucun moyen de s'en passer. Le
-mot de passe maître protège la *route* — il vous laisse arriver jusqu'à la
-page de connexion — mais il ne peut pas vous connecter à Overleaf.
-
-C'est aussi pourquoi le mode invité y utilise un compte partagé plutôt qu'un
-accès anonyme.
-
-Une session Overleaf dure 5 jours, à condition que `OVERLEAF_SESSION_SECRET`
-soit défini dans `config/variables.env` du toolkit. **Sans lui**, `settings.js`
-retombe sur `CRYPTO_RANDOM`, souvent absent lui aussi : le secret vaut alors
-`undefined` et aucune session ne survit à une recréation du conteneur — il faut
-ressaisir le mot de passe à chaque redémarrage.
-
-```bash
-# À ajouter une fois, dans overleaf-toolkit/config/variables.env
-OVERLEAF_SESSION_SECRET=<valeur longue et unique>
-```
-
-### Verrouillage du dashboard
-
-Après **15 minutes sans activité**, le mot de passe maître est redemandé.
-Rien ne s'arrête pour autant : les séances invitées, les conteneurs et les
-services continuent de tourner — seul l'accès au tableau de bord est refermé.
-
-La fenêtre est glissante et tenue côté serveur. `forward_auth` ne permet pas
-de renvoyer un cookie rafraîchi au navigateur, un registre d'activité fait
-donc le même travail sans toucher au cookie.
-
-### Carte graphique
-
-Le JupyterLab invité reçoit le GPU de la machine, via CDI
-(`nvidia-container-toolkit`). Cela ne lui ouvre aucun accès réseau : le
-conteneur reste sans interface, seul le périphérique est partagé. Les trois
-noyaux — `python3`, `sage`, `ai` — y ont accès, `torch.cuda` compris.
-
-**La mémoire vidéo n'est pas cloisonnée.** Sur cette machine, 8 Go au total
-dont ~3,4 déjà retenus par Ollama : il reste environ 4 Go pour toute la
-classe, puisés dans la même réserve. Un seul notebook trop gourmand fera
-échouer ceux des autres avec une erreur de mémoire.
-
-Deux leviers si la contention gêne :
-
-```bash
-# Libère la VRAM d'Ollama après 5 min d'inactivité (défaut : jamais)
-systemctl --user edit ollama   # Environment=OLLAMA_KEEP_ALIVE=5m
-```
-
-et, côté étudiants, des lots réduits plus `torch.cuda.empty_cache()` entre
-deux expériences.
-
-Sans GPU ou sans `nvidia-container-toolkit`, `install.sh` retire la
-déclaration du conteneur : le mode invité fonctionne alors sans accélération,
-au lieu de refuser de démarrer sur un périphérique absent.
+Chaque ouverture génère un code neuf et une nouvelle clé de signature : les
+jetons de la séance précédente cessent d'être honorés. Le code porte la date pour
+être dictable, mais se termine par des chiffres tirés au sort — une valeur
+calculée depuis la seule date serait devinable, or le portail peut être joignable
+depuis Internet.
 
 ### Feuille de présence
 
 Caddy interroge le portail avant *chaque* requête d'un invité : la présence,
 l'outil actif et la chronologie s'en déduisent, sans rien installer chez
-l'étudiant. Le tableau de bord affiche qui est connecté, sur quoi, et depuis
-combien de temps. À la fermeture, la séance est archivée pour un suivi
-ultérieur.
+l'utilisateur. La page d'entrée en informe explicitement.
 
-La page d'entrée en informe explicitement l'étudiant.
+### Hors ligne
 
-### Hors ligne et partage de connexion
+Tout fonctionne sans Internet : les pages n'ont aucune dépendance externe, les
+modèles sont locaux. En partage de connexion, le tableau de bord détecte les
+adresses du hotspot et les met en tête des consignes à dicter.
 
-Tout fonctionne **sans Internet** : les pages n'ont aucune dépendance externe,
-les modèles sont locaux. En partage de connexion, le tableau de bord détecte
-les adresses de hotspot et les met en tête des consignes à dicter.
+## Comment on y accède
 
-Sans route par défaut, la publication Funnel est **ignorée immédiatement** au
-lieu d'échouer après des dizaines de secondes : la séance s'ouvre en salle,
-seule l'exposition extérieure est impossible.
+Sampana écoute sur deux chemins, et les pages choisissent le bon toutes seules :
 
-### Ports
+- **Par Tailscale** — `https://votre-machine.votre-tailnet.ts.net`, le TLS est
+  fourni par `tailscale serve`.
+- **Par le réseau local** — `http://<adresse-de-la-machine>:8088`, utile en
+  salle, indispensable sans Internet.
 
-Tailscale Funnel n'accepte que **443, 8443 et 10000**. Le dashboard occupe 443,
-il reste donc 10000 (portail, JupyterLab, Lean4Web, dossier partagé — tous
-routables en sous-chemin) et 8443 (LaTeX Lab, qui exige la racine d'un port).
-L'assistant IA invité n'a plus de créneau : il reste accessible en salle.
+Les services à port dédié écoutent sur **deux ports** : celui que publie
+Tailscale, et un port local à partir de 11000. Les deux ne peuvent pas être
+identiques — le démon Tailscale tient déjà le port publié, et la collision
+empêcherait Caddy de démarrer, emportant tout le tableau de bord.
 
-### Bouton retour
+> **Si le nom `.ts.net` ne résout pas** sur un appareil, c'est que son système
+> court-circuite le DNS de Tailscale (DNS privé Android, DNS sécurisé du
+> navigateur). L'adresse `100.x.y.z` du tailnet fonctionne toujours.
 
-Aucun des outils n'en propose. Ils sont donc affichés dans une **enveloppe**
-surmontée d'une barre « ← Outils ». Elle est servie **sur le port de l'outil**,
-jamais sur celui du tableau de bord : LaTeX Lab renvoie `X-Frame-Options:
-SAMEORIGIN`, et un port différent est une origine différente.
+### Exposition sur Internet
 
-## Désinstallation
+Tailscale Funnel n'accepte que **443, 8443 et 10000**. Les outils qui ne rentrent
+pas dans ces créneaux restent accessibles en salle, mais pas depuis l'extérieur.
+
+## Sécurité
+
+**Un mot de passe maître**, haché en scrypt dans `~/.config/sampana/auth.json`
+(mode 600). Jamais stocké en clair.
+
+Une session par cookie plutôt que Basic Auth : les cookies sont attachés au nom
+de domaine et **ignorent le port**, si bien qu'une connexion vaut pour la racine
+*et* pour chaque port dédié. Basic Auth aurait redemandé le mot de passe sur
+chacun, chaque port étant une origine distincte.
+
+- **Verrouillage après 15 minutes d'inactivité**, sans rien interrompre : les
+  séances invitées et les conteneurs continuent de tourner. La fenêtre est
+  glissante et tenue côté serveur — `forward_auth` ne permet pas de renvoyer un
+  cookie rafraîchi, un registre d'activité fait le même travail.
+- **Ralentissement exponentiel** sur les tentatives ratées, plafonné. Il ne
+  bloque jamais un mot de passe correct : derrière un tunnel, tout le trafic
+  partage une adresse source, et un blocage dur offrirait à un inconnu le moyen
+  de vous fermer la porte.
+- **Valeurs extérieures échappées** partout où elles entrent dans une page. Un
+  nom saisi par un invité s'affiche dans la feuille de présence de
+  l'administrateur : sans échappement, il y exécuterait du code.
+
+Changer le mot de passe : depuis la section Configuration, ou
 
 ```bash
-./uninstall.sh
+rm ~/.config/sampana/auth.json && ./install.sh
 ```
 
-Retire uniquement ce que Sampana a installé, restaure le `Caddyfile` précédent,
-et ne touche à aucun service proxifié.
+### Ce que Sampana ne protège pas
+
+Vos services n'ont plus de mot de passe propre. Cela suppose qu'ils ne soient
+joignables **que** par Sampana :
+
+```bash
+ss -tlnp | grep -v '127.0.0.1'
+```
+
+Un service qui écoute sur `0.0.0.0` reste accessible depuis le réseau local
+**sans** passer par le mot de passe maître.
+
+Le tableau de bord est servi en HTTP sur le réseau local : le mot de passe y
+circule en clair. Voir [TODO.md](TODO.md).
+
+`AUTH_ENABLED=0` désactive toute authentification — à ne faire que si chaque
+service porte déjà la sienne.
+
+### Servir un outil en HTTPS localement
+
+Certaines applications exigent un « contexte sécurisé » et refusent de démarrer
+en HTTP — tout ce qui diffuse de la vidéo par WebCodecs, par exemple. Ajoutez
+`"secure_context": true` : Caddy le sert alors en TLS avec son autorité locale,
+en émettant le certificat à la demande, car l'adresse de la machine change d'un
+réseau à l'autre.
+
+L'installation pose cette autorité dans le magasin du système **et** dans celui
+des navigateurs, qui ont chacun le leur. Une copie est déposée dans votre dossier
+personnel pour vos téléphones et tablettes.
+
+### Un service qui garde son mot de passe
+
+Un serveur LaTeX de type Overleaf gère ses propres comptes et n'expose aucun
+moyen de s'en passer. Le mot de passe maître protège la *route* — il vous laisse
+arriver à la page de connexion — mais ne peut pas vous y connecter. C'est aussi
+pourquoi le mode invité y utilise un compte partagé, dont le mot de passe est
+renouvelé à chaque séance et affiché dans le guide.
+
+Pensez à définir un secret de session côté Overleaf ; sans lui, aucune session ne
+survit à une recréation du conteneur.
+
+## Carte graphique
+
+Le JupyterLab invité reçoit le GPU de la machine via CDI. Cela ne lui ouvre aucun
+accès réseau : le conteneur reste sans interface, seul le périphérique est
+partagé.
+
+**La mémoire vidéo n'est pas cloisonnée** : elle est puisée dans une réserve
+commune, amputée de ce que retient déjà votre service d'IA local. Un notebook
+trop gourmand fera échouer ceux des autres. Deux leviers — libérer le modèle à
+l'inactivité (`OLLAMA_KEEP_ALIVE`), et des lots réduits côté utilisateurs.
+
+Sans GPU ou sans `nvidia-container-toolkit`, l'installation retire la déclaration
+plutôt que de refuser de démarrer sur un périphérique absent.
+
+## Architecture
+
+```
+   tailnet (WireGuard)          réseau local
+           │                         │
+   tailscale serve ── TLS            │
+           │                         │
+           └───────────┬─────────────┘
+                       ▼
+                     Caddy
+                       │
+    ┌──────────────────┼───────────────────┐
+    ▼                  ▼                   ▼
+ :8088             :11000+              :8081
+ tableau de bord   outils à port        portail invité
+    │              dédié
+    ├── /              dashboard
+    ├── /app.html      cadre (bandeau + retour)
+    ├── /auth/*        connexion
+    ├── /api/status    sonde de santé
+    └── /<service>/    services en sous-chemin
+```
+
+Trois services Python sans dépendances : authentification, sonde de santé,
+portail invité.
+
+Aucun outil ne propose de bouton retour. Ils sont donc affichés dans une
+**enveloppe** surmontée d'une barre « ← Retour », servie **sur le port de
+l'outil** et jamais sur celui du tableau de bord : un port différent est une
+origine différente, et certaines applications refusent d'être encadrées depuis
+ailleurs.
+
+## Pièges rencontrés
+
+Chacun a coûté du temps. Ils sont évités par construction, mais les connaître
+évite de les réintroduire.
+
+- **Un bloc `http://127.0.0.1:8088` filtre sur le `Host`.** Tailscale transmet le
+  nom `.ts.net`, aucun site ne correspond, et Caddy répond **200 avec un corps
+  vide** partout. Les tests en local passent, ceux par Tailscale non. Écrire
+  `:8088` avec `bind`.
+- **`forward_auth` s'applique AVANT les blocs `handle`.** Sans matcher excluant
+  `/auth/*`, la page de connexion se protège elle-même et le navigateur boucle.
+- **`X-Frame-Options: DENY` interdit le cadre même depuis la même origine.** Un
+  site qui héberge à la fois le cadre et les outils affichés dedans doit poser
+  `SAMEORIGIN`.
+- **Une iframe dimensionnée en pourcentage** exige un parent à hauteur définie.
+  Quand elle vient d'un étirement flex, le calcul échoue et l'iframe retombe à
+  150 px. Caler sur les quatre bords.
+- **Des pages sans consigne de cache** sont gardées par le navigateur selon son
+  heuristique : un correctif déployé reste invisible, sans rien pour le signaler.
+- **Un rechargement de Caddy qui échoue n'applique rien** et garde l'ancienne
+  configuration en silence. Toujours valider avant d'installer.
+- **`admin off` casse `systemctl reload caddy`** — le rechargement passe par
+  l'API d'administration locale.
+- **Le durcissement systemd interdit à Caddy d'écrire** dans un journal sous
+  `/var/log`, quels que soient les droits du dossier.
+- **Pas de `redir /x /x/` devant Next.js** : il retire la barre finale, les deux
+  règles se renvoient la balle (308 infini).
+- **Ordre des routes** : un préfixe d'API doit être déclaré avant le préfixe
+  applicatif dont il partage le début. Le générateur trie.
+- **Un seul en-tête ne suffit pas à conclure** sur l'encadrement : vérifier
+  `X-Frame-Options` *et* `Content-Security-Policy`, sur toute la chaîne de
+  redirection.
+
+## Contenu du dépôt
+
+```
+bin/render.py        génère Caddyfile, manifeste web et commandes tailscale
+bin/check-embed.py   vérifie qu'une application accepte d'être encadrée
+config/              vos fichiers (non versionnés) et leurs exemples
+services/            services Python, images de conteneurs, unités systemd
+web/                 tableau de bord, cadre, portail invité
+install.sh           installation, rejouable
+deploie-web.sh       déploiement des seules pages
+uninstall.sh         retire ce que Sampana a installé
+```
+
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md) — ce qui a été fait, corrigé, et ce qui a échoué
+- [TODO.md](TODO.md) — ce qui reste, et les limites connues
+- [docs/CLAUDE-CODE-PROMPT.md](docs/CLAUDE-CODE-PROMPT.md) — reconstruire
+  Sampana avec un agent IA
 
 ## Licence
 
-MIT
+MIT — voir [LICENSE](LICENSE).
