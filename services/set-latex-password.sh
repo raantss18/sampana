@@ -14,7 +14,7 @@ PASSWORD="${2:?usage: set-latex-password.sh <email> <mot-de-passe>}"
 # Depuis le repertoire d'installation, et non le depot : celui-ci peut
 # etre deplace ou supprime apres coup.
 SRC="$HOME/.local/share/sampana/set-latex-password.mjs"
-TOOLKIT="$HOME/overleaf-toolkit"
+TOOLKIT="$HOME/GitHub/overleaf-toolkit"
 
 if ! docker ps --format '{{.Names}}' | grep -qx sharelatex; then
   echo "LaTeX Lab n'est pas demarre" >&2

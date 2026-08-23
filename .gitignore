@@ -5,6 +5,11 @@ config/services.json
 # Fichiers generes par bin/render.py
 build/
 
+# Donnees personnelles (auth, rendus d'eleves, partage) : jamais versionnees.
+# Seule la structure du dossier apparait dans le depot.
+data/*
+!data/.gitkeep
+
 # Divers
 __pycache__/
 *.pyc

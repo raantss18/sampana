@@ -12,7 +12,7 @@ GUEST_EMAIL="${1:-invite@sampana.local}"
 # Depuis le repertoire d'installation, et non le depot : celui-ci peut
 # etre deplace ou supprime apres coup.
 SRC="$HOME/.local/share/sampana/purge-guest-latex.mjs"
-TOOLKIT="$HOME/overleaf-toolkit"
+TOOLKIT="$HOME/GitHub/overleaf-toolkit"
 
 if ! docker ps --format '{{.Names}}' | grep -qx sharelatex; then
   echo "LaTeX Lab n'est pas demarre — purge reportee."
