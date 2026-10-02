@@ -7,7 +7,9 @@ After=network-online.target
 # Cette image la fait tourner dans un bureau minimal, diffuse au navigateur.
 # C'est donc le VRAI Obsidian, avec ses greffons — Excalidraw compris — et non
 # une imitation qui n'en lirait que les fichiers.
-Image=lscr.io/linuxserver/obsidian:latest
+# Image derivee : l'originale plus le reglage de mise a l'echelle tactile.
+# Construite par install.sh depuis services/obsidian.Containerfile.
+Image=localhost/sampana/obsidian:latest
 
 # RESERVE A L'ENSEIGNANT. Le bureau est unique : deux personnes connectees
 # partagent le meme curseur et se disputent le clavier. Inutilisable pour une
